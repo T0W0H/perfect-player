@@ -6782,6 +6782,21 @@ function syncUserStatsIntoBoxScore(gameResult, stats) {
 }
 
 /** 生成你的球员数据：分钟、球权、出手类型和每项数据分别由对应属性驱动。 */
+// ==================== 位置专业化系数 ====================
+// 参考 BuildMyNBAPlayer（icr3am.com/nba-game/）公开构建里的位置校准：
+// 得分峰值 SG≈33 / SF≈30 / PG≈29 / C≈29 / PF≈27，抢断同样有明确的位置系数。
+// 这里只取「相对比例」套到我们自己的公式上（不改我们原有的模拟结构）；
+// 想回到旧手感就把两张表全部改成 1。
+var POSITION_SPEC = {
+  scout: { PG: 0.98, SG: 1.11, SF: 1.01, PF: 0.91, C: 0.98 }, // 得分：乘在出手量上
+  steal: { PG: 1.00, SG: 0.90, SF: 0.80, PF: 0.68, C: 0.65 }, // 抢断：高位内线不再拥有后卫级抢断
+};
+
+function positionSpec(kind, pos) {
+  var table = POSITION_SPEC[kind] || {};
+  return table[pos] == null ? 1 : table[pos];
+}
+
 function generatePlayerStatsNew(attrs, gameResult, isPlayoff) {
   const pos = STATE.position || 'PG';
   const pace = Number(gameResult && gameResult.pace) || 99.4;
@@ -6802,7 +6817,7 @@ function generatePlayerStatsNew(attrs, gameResult, isPlayoff) {
   const teamFGA = pace * 0.896;
   const scoringAverage = ((parseInt(attrs.threePT)||50) + (parseInt(attrs.MID)||50) + (parseInt(attrs.FIN)||50)) / 3;
   const aggression = Math.max(0.78, Math.min(1.12, 0.96 + (scoringAverage - 70) * 0.004));
-  const expectedFga = teamFGA * minsFactor * usage * aggression * (1 - defensePressure * 1.5);
+  const expectedFga = teamFGA * minsFactor * usage * aggression * (1 - defensePressure * 1.5) * positionSpec('scout', pos);
   const minimumFga = mins >= 12 ? 2 : 0;
   let fga = Math.max(minimumFga, Math.min(32, Math.round(simGaussian(expectedFga, Math.max(0.8, expectedFga * 0.10)))));
 
@@ -6841,7 +6856,7 @@ function generatePlayerStatsNew(attrs, gameResult, isPlayoff) {
   const astCeiling = { PG:12.0, SG:9.2, SF:8.8, PF:9.0, C:10.0 };
   const ast36 = astBase[pos] + Math.pow(simSkill01(playmaking), 1.32) * astCeiling[pos];
   const pointDefense = (parseInt(attrs.PDEF)||50) * 0.70 + (parseInt(attrs.ATH)||50) * 0.20 + (parseInt(attrs.HAN)||50) * 0.10;
-  const stl36 = 0.25 + Math.pow(simSkill01(pointDefense), 1.25) * 2.05;
+  const stl36 = (0.25 + Math.pow(simSkill01(pointDefense), 1.25) * 2.05) * positionSpec('steal', pos);
   const rimDefense = (parseInt(attrs.BLK)||50) * 0.72 + (parseInt(attrs.IDEF)||50) * 0.20 + (parseInt(attrs.ATH)||50) * 0.08;
   const blkBase = { PG:.04, SG:.05, SF:.08, PF:.14, C:.20 };
   const blkCeiling = { PG:1.15, SG:1.35, SF:2.10, PF:3.30, C:4.20 };
