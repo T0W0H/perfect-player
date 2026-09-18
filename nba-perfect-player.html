@@ -460,6 +460,28 @@ body{font-family:var(--font-body);background:var(--bg);color:var(--text);min-hei
     .cs-season-record{font-size:12px;color:var(--text-dim);min-width:48px;text-align:center}
     .cs-season-pts{font-size:12px;color:var(--text-dim);min-width:50px;text-align:right}
     .cs-season-arrow{color:var(--text-muted);font-size:12px}
+    .cs-season-delta{font-size:9px;margin-left:3px}
+    .cs-season-delta.up{color:var(--green)}
+    .cs-season-delta.down{color:var(--red)}
+    /* ── 生涯轨迹 ── */
+    .trend-row{display:flex;align-items:flex-end;gap:7px;margin:6px 0}
+    .trend-lbl{font-size:10px;color:var(--text-dim);min-width:24px;padding-bottom:2px}
+    .trend-track{flex:1;height:34px;display:flex;align-items:flex-end;gap:2px}
+    .trend-bar{flex:1;min-width:2px;border-radius:2px 2px 0 0;background:var(--orange-light);opacity:.72}
+    .trend-bar.is-peak{background:var(--orange);opacity:1}
+    .trend-track.reb .trend-bar{background:var(--green)}
+    .trend-track.reb .trend-bar.is-peak{opacity:1}
+    .trend-track.ast .trend-bar{background:#5b9bd5}
+    .trend-track.ast .trend-bar.is-peak{opacity:1}
+    .trend-peak{font-family:var(--font-display);font-size:12px;color:var(--orange);min-width:38px;text-align:right;padding-bottom:1px}
+    .trend-sign{font-size:11px;color:var(--text-dim);padding:6px 0 2px}
+    .trend-sub{font-size:11px;color:var(--text-dim);padding:8px 0 4px}
+    .trend-leap{display:flex;align-items:center;gap:7px;font-size:11px;padding:6px 8px;background:var(--bg-card);border:1.5px solid var(--border);border-radius:8px;margin-bottom:4px}
+    .trend-leap-season{font-family:var(--font-display);font-weight:700;color:var(--orange);min-width:26px}
+    .trend-leap-attrs{flex:1;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .trend-leap-stat{font-family:var(--font-display);color:var(--text-dim);white-space:nowrap}
+    .trend-leap-stat.up{color:var(--green)}
+    .trend-leap-stat.down{color:var(--red)}
     .cs-season-detail-overlay{position:fixed;inset:0;z-index:300;background:rgba(0,0,0,0.45);display:flex;align-items:center;justify-content:center;padding:16px;animation:fadeIn .2s ease;backdrop-filter:blur(4px)}
     .cs-season-detail-modal{background:var(--bg);border:2px solid var(--border);border-radius:var(--radius);width:100%;max-width:380px;max-height:80vh;overflow-y:auto;box-shadow:0 8px 48px rgba(0,0,0,0.25);animation:slideUp .25s ease}
     .cs-detail-header{display:flex;align-items:center;justify-content:space-between;padding:12px 14px;border-bottom:1px solid var(--border);position:sticky;top:0;background:var(--bg);z-index:1}
@@ -6522,7 +6544,10 @@ window.PERFECT_PLAYER_SIM_REPORT = {
 };
 
 function simSkill01(value) {
-  return Math.max(0, Math.min(1, ((parseInt(value) || 25) - 25) / 74));
+  var raw = ((parseInt(value) || 25) - 25) / 74;
+  if (raw <= 0) return 0;
+  // 99 不是天花板：超出 99 的部分按半速继续折算，属性练上去数据就继续涨
+  return raw <= 1 ? raw : 1 + (raw - 1) * 0.5;
 }
 
 function allocateIntegerTotal(total, weights, minimums) {
@@ -6639,8 +6664,9 @@ function generateBoxScore(teamA, teamB, totalA, totalB) {
  *  35→0.18  50→0.39  65→0.57  75→0.69  85→0.82  95→0.94  99→1.00
  */
 function attrFactor(val) {
-  const v = Math.max(25, Math.min(99, val || 50));
-  return Math.pow((v - 25) / 74, 0.85);
+  const raw = (Math.max(25, val || 50) - 25) / 74;
+  const soft = raw <= 1 ? raw : 1 + (raw - 1) * 0.5;
+  return Math.pow(soft, 0.85);
 }
 
 /** 严格版：只有顶尖属性才能展现顶尖数据（attrFactor^1.5）
@@ -6685,7 +6711,7 @@ function samplePoisson(expected) {
 }
 
 function interpolateShotCurve(attrVal, anchors) {
-  var value = Math.max(25, Math.min(99, Number(attrVal) || 50));
+  var value = Math.max(25, Number(attrVal) || 50);
   for (var i = 1; i < anchors.length; i++) {
     if (value <= anchors[i][0]) {
       var left = anchors[i - 1];
@@ -6694,7 +6720,11 @@ function interpolateShotCurve(attrVal, anchors) {
       return left[1] + (right[1] - left[1]) * t;
     }
   }
-  return anchors[anchors.length - 1][1];
+  // 超出锚点表末端的部分继续外推（斜率打两五折）：练过 99 仍然有收益，只是逐步收敛
+  var last = anchors[anchors.length - 1];
+  var prev = anchors[anchors.length - 2] || last;
+  var slope = (last[1] - prev[1]) / Math.max(1, last[0] - prev[0]);
+  return last[1] + (value - last[0]) * slope * 0.25;
 }
 
 function calcShotPct(type, attrVal, totalScore, defensePressure, gameForm) {
@@ -6709,7 +6739,13 @@ function calcShotPct(type, attrVal, totalScore, defensePressure, gameForm) {
   var pressureScale = type === 'FIN' ? 0.82 : (type === 'MID' ? 0.92 : 1);
   var pct = interpolateShotCurve(attrVal, curve) - (Number(defensePressure) || 0) * pressureScale + (Number(gameForm) || 0);
   var cfg = SIM_CONFIG.SHOOTING[type] || {};
-  return Math.max(cfg.min || curve[0][1], Math.min(cfg.max || curve[curve.length - 1][1], pct));
+  var minPct = cfg.min || curve[0][1];
+  var maxPct = cfg.max || curve[curve.length - 1][1];
+  // 命中率保留物理刹车（不然会出现 100% 的怪数据），但 99 以上不再一刀切：
+  // 上限随属性小幅上抬，练到 120 大约放宽 5%
+  var val = Number(attrVal) || 50;
+  if (val > 99) maxPct += maxPct * 0.05 * Math.min(1, (val - 99) / 21);
+  return Math.max(minPct, Math.min(maxPct, pct));
 }
 
 function calcPlayerCreationRating(attrs, pos) {
@@ -6788,6 +6824,9 @@ function syncUserStatsIntoBoxScore(gameResult, stats) {
 //   - 不采用对方的 POS_CAP / POS_STAT_CAP / DYNAMIC_CAP（位置属性上限、数据天花板、单场上限）；
 //   - 抢断采用的是「能力越强越接近无差别」的软化形式，满属性内线仍可打出后卫级抢断，
 //     只是低能力阶段才有位置差异；
+//   - 属性软顶为 ATTR_SOFT_CAP（120），99 之后仍能靠训练点继续练，simSkill01 / attrFactor
+//     会超出 1 继续外推，数据不会在 99 处停住；
+//   - 出手 / 罚球 / 球权用「软膝」代替硬截断，命中率只保留物理刹车（防 100% 怪数据）。
 //   - 得分保留平缓的位置系数（用户确认过的差异化，SG 峰值最高、PF 最低）。
 // 想回到旧手感：把 scout 表全改成 1、把 steal 软化关掉即可。
 var POSITION_SPEC = {
@@ -6819,7 +6858,9 @@ function generatePlayerStatsNew(attrs, gameResult, isPlayoff) {
   if (isPlayoff && creation01 > 0.62) usage += 0.01;
   // 队友竞争：抱团 / 同位置有强人时球权下降
   usage *= (typeof getTeammateUsageFactor === 'function' ? getTeammateUsageFactor(pos) : 1);
-  usage = Math.max(0.10, Math.min(0.39, usage));
+  usage = Math.max(0.10, usage);
+  // 软膝而非硬顶：越过 0.39 后仍能继续吃球权，只是增速放缓
+  if (usage > 0.39) usage = 0.39 + (usage - 0.39) * 0.65;
 
   const baseline = getSimulationPowerBaseline();
   const opponentDefense = gameResult && gameResult.teamB && gameResult.teamB.power ? Number(gameResult.teamB.power.defense) : baseline.defense;
@@ -6829,7 +6870,9 @@ function generatePlayerStatsNew(attrs, gameResult, isPlayoff) {
   const aggression = Math.max(0.78, Math.min(1.12, 0.96 + (scoringAverage - 70) * 0.004));
   const expectedFga = teamFGA * minsFactor * usage * aggression * (1 - defensePressure * 1.5) * positionSpec('scout', pos);
   const minimumFga = mins >= 12 ? 2 : 0;
-  let fga = Math.max(minimumFga, Math.min(32, Math.round(simGaussian(expectedFga, Math.max(0.8, expectedFga * 0.10)))));
+  let fga = Math.max(minimumFga, Math.round(simGaussian(expectedFga, Math.max(0.8, expectedFga * 0.10))));
+  // 出手不封顶：32 次以上仍然能继续投，只是超出部分按半速计（体力与包夹的自然代价）
+  if (fga > 32) fga = 32 + Math.round((fga - 32) * 0.5);
 
   const baseDist = SIM_CONFIG.SHOT_DIST[pos] || SIM_CONFIG.SHOT_DIST.PG;
   const finRating = (parseInt(attrs.FIN)||50) * 0.72 + (parseInt(attrs.DNK)||50) * 0.28;
@@ -6852,7 +6895,8 @@ function generatePlayerStatsNew(attrs, gameResult, isPlayoff) {
   const fgm = threeM + midM + finM;
 
   const ftRate = Math.max(0.07, Math.min(0.56, 0.07 + simSkill01(attrs.FIN) * 0.20 + simSkill01(attrs.STR) * 0.11 + simSkill01(attrs.HAN) * 0.06));
-  const fta = Math.max(0, Math.min(18, Math.round(simGaussian(fga * ftRate, 1.0))));
+  let fta = Math.max(0, Math.round(simGaussian(fga * ftRate, 1.0)));
+  if (fta > 18) fta = 18 + Math.round((fta - 18) * 0.6);
   const freeThrowRating = (parseInt(attrs.CLU)||50) * 0.50 + (parseInt(attrs.MID)||50) * 0.25 + (parseInt(attrs.threePT)||50) * 0.25;
   const ftPct = calcShotPct('FT', freeThrowRating, 0, 0, gameForm * 0.45);
   const ftm = sampleBinomial(fta, ftPct);
@@ -9600,6 +9644,92 @@ function exitToHomepage() {
   initGame();
 }
 
+function getSeasonAverages(s) {
+  var sp = (s && s.playerStats) || {};
+  var g = Math.max(1, Number(sp.games) || 0);
+  var r1 = function(v) { return Math.round((Number(v) || 0) / g * 10) / 10; };
+  return { pts:r1(sp.pts), reb:r1(sp.reb), ast:r1(sp.ast), stl:r1(sp.stl), blk:r1(sp.blk), games:Number(sp.games) || 0 };
+}
+
+function getSeasonShortLabel(seasonNum) {
+  return 'S' + Math.max(1, parseInt(seasonNum) || 1);
+}
+
+// 找出「属性大幅进步 → 数据跟着涨」的赛季：相邻两季的属性差（含休赛期成长与加点）
+function getCareerLeapSeasons(limit) {
+  var c = STATE.career;
+  var out = [];
+  if (!c || !c.seasons || c.seasons.length < 2) return out;
+  for (var i = 1; i < c.seasons.length; i++) {
+    var prev = c.seasons[i - 1], cur = c.seasons[i];
+    if (!prev.attrs || !cur.attrs) continue;
+    var gains = [];
+    ATTR_KEYS.forEach(function(k) {
+      var d = (Number(cur.attrs[k]) || 50) - (Number(prev.attrs[k]) || 50);
+      if (d >= 3) gains.push({ key:k, delta:d });
+    });
+    if (!gains.length) continue;
+    gains.sort(function(a, b) { return b.delta - a.delta; });
+    var a1 = getSeasonAverages(prev), a2 = getSeasonAverages(cur);
+    out.push({
+      season: cur,
+      gains: gains,
+      avg: a2,
+      dPts: Math.round((a2.pts - a1.pts) * 10) / 10,
+    });
+  }
+  out.sort(function(a, b) { return (b.season.seasonNum || 0) - (a.season.seasonNum || 0); });
+  return limit ? out.slice(0, limit) : out;
+}
+
+// 生涯轨迹：逐季的得分/篮板/助攻走势 + 招牌方向 + 开窍赛季
+function renderCareerTrendSection() {
+  var c = STATE.career;
+  if (!c || !c.seasons || c.seasons.length < 2) return '';
+  var seasons = c.seasons;
+  var h = '<div class="sr-section cs-section">';
+  h += '<div class="sr-section-title">📈 生涯轨迹</div>';
+  [{ key:'pts', label:'得分', cls:'' }, { key:'reb', label:'篮板', cls:'reb' }, { key:'ast', label:'助攻', cls:'ast' }].forEach(function(m) {
+    var vals = seasons.map(function(s) { return getSeasonAverages(s)[m.key]; });
+    var peak = Math.max.apply(null, vals) || 0;
+    var scale = Math.max(0.1, peak);
+    var peakIndex = vals.indexOf(peak);
+    var bars = '';
+    seasons.forEach(function(s, i) {
+      var v = vals[i];
+      var barH = Math.max(5, Math.round(v / scale * 100));
+      var isPeak = peak > 0 && i === peakIndex;
+      bars += '<div class="trend-bar' + (isPeak ? ' is-peak' : '') + '" style="height:' + barH + '%" title="' + getSeasonLabel(s.seasonNum) + '：' + v + '"></div>';
+    });
+    h += '<div class="trend-row"><span class="trend-lbl">' + m.label + '</span>';
+    h += '<div class="trend-track ' + m.cls + '">' + bars + '</div>';
+    h += '<span class="trend-peak">' + peak + '</span></div>';
+  });
+
+  var ranked = ATTR_KEYS.map(function(k) { return { key:k, value: Number(STATE.attrs[k]) || 50 }; })
+    .sort(function(a, b) { return b.value - a.value; }).slice(0, 3);
+  if (ranked.length) {
+    h += '<div class="trend-sign">🏀 生涯招牌：' + ranked.map(function(t) { return attrCN(t.key) + ' ' + t.value; }).join(' · ') + '</div>';
+  }
+
+  var leaps = getCareerLeapSeasons(6);
+  if (leaps.length) {
+    h += '<div class="trend-sub">🔥 开窍赛季（属性大幅进步，数据随之上涨）</div>';
+    leaps.forEach(function(l) {
+      var gainTxt = l.gains.slice(0, 3).map(function(g) { return attrCN(g.key) + '+' + g.delta; }).join(' ');
+      var more = l.gains.length > 3 ? ' 等' : '';
+      var deltaTxt = l.dPts === 0 ? '' : ' (' + (l.dPts > 0 ? '▲' : '▼') + Math.abs(l.dPts) + ')';
+      h += '<div class="trend-leap">';
+      h += '<span class="trend-leap-season">' + getSeasonShortLabel(l.season.seasonNum) + '</span>';
+      h += '<span class="trend-leap-attrs">' + gainTxt + more + '</span>';
+      h += '<span class="trend-leap-stat ' + (l.dPts > 0 ? 'up' : (l.dPts < 0 ? 'down' : '')) + '">' + l.avg.pts + '分' + deltaTxt + '</span>';
+      h += '</div>';
+    });
+  }
+  h += '</div>';
+  return h;
+}
+
 function renderCareerStatsTab() {
   var c = STATE.career;
   var ps = c.totalStats;
@@ -9646,6 +9776,7 @@ function renderCareerStatsTab() {
   h += '</div>';
   h += '<div class="sr-pct-line">命中率 ' + avg.fgm + '-' + avg.fga + ' (' + pct + '%) · 三分 ' + avg.threeM + '-' + avg.threeA + ' (' + threePct + '%) · 罚球 ' + avg.ftm + '-' + avg.fta + ' (' + ftPct + '%)</div>';
   h += '</div>';
+  h += renderCareerTrendSection();
   h += '<div class="sr-section cs-section">';
   h += '<div class="sr-section-title">📋 每赛季</div>';
   if (c.seasons.length === 0) {
@@ -9653,16 +9784,19 @@ function renderCareerStatsTab() {
   } else {
     for (var i = c.seasons.length - 1; i >= 0; i--) {
       var s = c.seasons[i];
-      var sp = s.playerStats || {};
-      var sg = sp.games || 1;
-      var sa = Math.round((sp.pts || 0) / sg * 10) / 10;
+      var sa = getSeasonAverages(s).pts;
       var tn = getTeamName ? getTeamName(s.team) : s.team;
       var record = (s.wins || 0) + '-' + (s.losses || 0);
+      var ptsDelta = '';
+      if (i > 0) {
+        var d = Math.round((sa - getSeasonAverages(c.seasons[i - 1]).pts) * 10) / 10;
+        if (d !== 0) ptsDelta = '<span class="cs-season-delta ' + (d > 0 ? 'up' : 'down') + '">' + (d > 0 ? '▲' : '▼') + Math.abs(d) + '</span>';
+      }
       h += '<div class="cs-season-row" onclick="showSeasonDetail(' + i + ')">';
       h += '<span class="cs-season-num">' + getSeasonLabel(s.seasonNum) + '</span>';
       h += '<span class="cs-season-team">' + tn + '</span>';
       h += '<span class="cs-season-record">' + record + '</span>';
-      h += '<span class="cs-season-pts">' + sa + '分</span>';
+      h += '<span class="cs-season-pts">' + sa + '分' + ptsDelta + '</span>';
       h += '<span class="cs-season-arrow">›</span>';
       h += '</div>';
     }
@@ -9798,10 +9932,15 @@ function saveCurrentSeasonToCareer() {
 
   c.seasonCount++;
   if (typeof updateSeasonBadge === 'function') updateSeasonBadge();
+  // 赛季属性快照：用来在生涯数据页还原「练了什么 → 数据怎么变」的轨迹
+  var attrsSnapshot = {};
+  ATTR_KEYS.forEach(function(k) { attrsSnapshot[k] = Number(STATE.attrs[k]) || 50; });
   var seasonRecord = {
     seasonNum: c.seasonCount, team: STATE.careerTeam, ovr: STATE.finalOVR,
     wins: STATE.season.wins || 0, losses: STATE.season.losses || 0,
     playerStats: JSON.parse(JSON.stringify(sp)),
+    attrs: attrsSnapshot,
+    age: c.currentAge || 0,
     playoffResult: playoffResult || (STATE.season.playoffBracket ? '季后赛' : '未晋级'),
     awards: honorList,
     eventTimeline: JSON.parse(JSON.stringify((STATE.season.events && STATE.season.events.storyTimeline) || [])),
@@ -9850,12 +9989,32 @@ function showSeasonDetail(idx) {
   }
   var ovr = s.ovr || '—';
 
+  // 与上一季对比：休赛期练了什么 / 了什么，一屏看完
+  var growthHtml = '';
+  var prevRecord = idx > 0 ? STATE.career.seasons[idx - 1] : null;
+  if (prevRecord && prevRecord.attrs && s.attrs) {
+    var ups = [], downs = [];
+    ATTR_KEYS.forEach(function(k) {
+      var d = (Number(s.attrs[k]) || 50) - (Number(prevRecord.attrs[k]) || 50);
+      if (d > 0) ups.push(attrCN(k) + '+' + d);
+      else if (d < 0) downs.push(attrCN(k) + d);
+    });
+    if (ups.length || downs.length) {
+      growthHtml += '<div class="sr-info-row" style="align-items:flex-start;"><span>休赛期成长</span><span style="text-align:right;font-size:11px;line-height:1.6;">';
+      if (ups.length) growthHtml += '<span style="color:var(--green);">' + ups.join(' ') + '</span>';
+      if (ups.length && downs.length) growthHtml += '<br>';
+      if (downs.length) growthHtml += '<span style="color:var(--red);">' + downs.join(' ') + '</span>';
+      growthHtml += '</span></div>';
+    }
+  }
+
   var html = '<div class="cs-season-detail-overlay" onclick="closeSeasonDetail(event)">';
   html += '<div class="cs-season-detail-modal">';
   html += '<div class="cs-detail-header"><span style="font-family:var(--font-display);font-size:16px;font-weight:700;">' + getSeasonLabel(s.seasonNum) + ' · ' + tn + '</span><button class="cs-detail-close" onclick="closeSeasonDetail()">✕</button></div>';
   html += '<div class="cs-detail-body">';
   html += '<div class="sr-info-row"><span>战绩</span><span>' + record + ' · OVR ' + ovr + '</span></div>';
   html += '<div class="sr-info-row"><span>场均</span><span style="font-weight:600;">' + avg.pts + '分 ' + avg.reb + '板 ' + avg.ast + '助 ' + avg.stl + '断 ' + avg.blk + '帽</span></div>';
+  html += growthHtml;
   html += '<div style="margin:8px 0 4px;font-size:12px;color:var(--text-dim);">季后赛：' + (s.playoffResult || '未晋级') + '</div>';
   if (awardsHtml) {
     html += '<div style="margin-top:6px;">' + awardsHtml + '</div>';
@@ -9921,8 +10080,11 @@ function showCareerHonors() {
 }
 
 // ==================== 训练营 ====================
+// 属性不再以 99 为硬顶：99 之后仍可继续练，只是训练点成本更高（见 getPointCost）。
+// 这个值只是防数值失控的兜底，不是设计天花板。
+var ATTR_SOFT_CAP = 120;
 function clampAttrVal(v) {
-  return Math.max(25, Math.min(99, Math.round(v)));
+  return Math.max(25, Math.min(ATTR_SOFT_CAP, Math.round(v)));
 }
 
 function addAttrDelta(key, delta) {
@@ -16209,15 +16371,15 @@ function renderTrainingAttrs(tp) {
     var added = pending[k] || 0;
     var after = cur + added;
     var maxAdd = getMaxAdd(added, tp, cur);
-    var pct = Math.min(100, cur);
-    var addPct = after > cur ? Math.min(100, after) - pct : 0;
+    var pct = Math.min(100, cur / ATTR_SOFT_CAP * 100);
+    var addPct = after > cur ? Math.min(100, after / ATTR_SOFT_CAP * 100) - pct : 0;
     var curGrade = getGrade ? getGrade(cur).letter : '';
     var afterGrade = getGrade ? getGrade(after).letter : '';
     var gradeChanged = curGrade !== afterGrade ? '<span style="color:var(--gold);font-weight:700;">' + curGrade + '→' + afterGrade + '</span>' : curGrade;
     var cost = getPointCost(cur + added);
-    var disabled = added >= 8 || remaining < cost || cur >= 99;
+    var disabled = added >= 8 || remaining < cost || cur >= ATTR_SOFT_CAP;
     var costLabel = cost > 1 ? ' (×' + cost + ')' : '';
-    var btnLabel = remaining >= cost && after < 99 ? '+' : '';
+    var btnLabel = remaining >= cost && after < ATTR_SOFT_CAP ? '+' : '';
 
     html += '<div class="tp-row' + (added > 0 ? ' tp-added' : '') + '">';
     html += '<span class="tp-label">' + attrCN(k) + '</span>';
@@ -16237,6 +16399,11 @@ function renderTrainingAttrs(tp) {
 
 function getPointCost(val) {
   // 收益递减：高属性每提升 1 点都应消耗真实预算，而不是只在按钮旁显示倍率。
+  // 99 以上不是禁区，只是价格继续走高。
+  if (val >= 112) return 14;
+  if (val >= 108) return 11;
+  if (val >= 104) return 9;
+  if (val >= 99) return 8;
   if (val >= 98) return 7;
   if (val >= 95) return 5;
   if (val >= 90) return 3;
@@ -16260,7 +16427,7 @@ function getMaxAdd(alreadyAdded, totalPoints, curVal) {
   if (remaining <= 0) return 0;
   var possible = 0;
   var value = curVal + alreadyAdded;
-  while (possible + alreadyAdded < 8 && value < 99) {
+  while (possible + alreadyAdded < 8 && value < ATTR_SOFT_CAP) {
     var cost = getPointCost(value);
     if (remaining < cost) break;
     remaining -= cost;
@@ -16279,7 +16446,7 @@ function addTrainingPoint(key) {
   var used = getPendingTrainingCost(STATE._tpPending);
   var remaining = tp - used;
   var cost = getPointCost(cur + added);
-  if (remaining < cost || cur + added >= 99) return;
+  if (remaining < cost || cur + added >= ATTR_SOFT_CAP) return;
   STATE._tpPending[key] = (STATE._tpPending[key] || 0) + 1;
   renderTrainingCamp();
 }
