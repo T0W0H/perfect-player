@@ -118,4 +118,51 @@ check('多条线一起出现时保持稳定顺序', () => {
   assert.ok(notes[3].indexOf('退役方式') === 0);
 });
 
+// ── 抱团抉择回响 ──
+const echoSource = [
+  extractFunction(html, 'careerStoryBranchNode'),
+  extractFunction(html, 'applySuperstarRecruitEcho'),
+  'return applySuperstarRecruitEcho();',
+].join('\n');
+const runEcho = new Function('STATE', 'addSeasonMod', 'addProfileDelta', echoSource);
+
+function echoFor(node, seasonCount) {
+  const profileCalls = [];
+  const modCalls = [];
+  const STATE = { career: { branches: { superstar_recruit: { node } }, flags: {}, seasonCount: seasonCount == null ? 3 : seasonCount } };
+  const text = runEcho(
+    STATE,
+    (key, delta) => { modCalls.push(key + ':' + delta); },
+    (key, delta) => { profileCalls.push(key + ':' + delta); }
+  );
+  return { text, profileCalls, modCalls, STATE };
+}
+
+check('抱团抉择回响：拒绝抱团加忠诚与球迷支持，并记入休赛期纪事', () => {
+  const { text, profileCalls, STATE } = echoFor('kept_distance');
+  assert.ok(text && text.indexOf('自己人') >= 0, '应有回响文案');
+  assert.deepEqual(profileCalls.sort(), ['fanSupport:1', 'loyalty:1']);
+  assert.equal(STATE.career.offseasonHistory.length, 1);
+  assert.equal(STATE.career.offseasonHistory[0].event, '抱团抉择 · 回响');
+  assert.equal(STATE.career.offseasonHistory[0].eventId, 'superstar_recruit_echo');
+});
+
+check('抱团抉择回响：考虑抱团加媒体压力', () => {
+  const { modCalls } = echoFor('consider_team_up');
+  assert.deepEqual(modCalls, ['mediaPressure:1']);
+});
+
+check('抱团抉择回响：同赛季只结算一次，未触发时不结算', () => {
+  const first = echoFor('public_leverage', 5);
+  assert.equal(first.STATE.career.offseasonHistory.length, 1);
+  // 同一个赛季再次调用（state 复用）不应重复
+  const again = runEcho(first.STATE, () => {}, () => {});
+  assert.equal(again, null);
+  assert.equal(first.STATE.career.offseasonHistory.length, 1);
+  // 没触发过这条线时不产生记录
+  const none = echoFor('start');
+  assert.equal(none.text, null);
+  assert.equal(none.STATE.career.offseasonHistory, undefined);
+});
+
 console.log('\n全部通过：' + passed + ' 项');

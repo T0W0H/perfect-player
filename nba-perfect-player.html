@@ -2384,6 +2384,16 @@ const STATE = {
   },
 };
 
+// ==================== ★ 平衡调参索引 ====================
+// 核心手感常量分散在各自的逻辑附近（都带说明注释），改数值不需要动逻辑：
+//   TEAM_IMPACT              球队实力对战果的影响（含队友交易/退役/成长）
+//   TEAMMATE_USAGE_RULES     队友竞争对你个人数据的影响（抱团代价）
+//   LOYALTY_BONUS            留守奖励（开季默契 / 交易保护 / 续约率 / 训练点）
+//   TEAM_RELATION_RETENTION  换队后教练信任与更衣室信任的保留比例
+//   TRAINING_POINT_SCALE     休赛期训练点数整体缩放
+//   AWARD_STREAK_MUL         奖项连庄衰减倍率（MVP 票数 / DPOY 评分）
+//   CAREER_STORY_NOTES       生涯注脚文案（剧情选择 → 退役评价）
+
 // ==================== UI 工具 ====================
 function $(sel) { return document.querySelector(sel); }
 function $$(sel) { return document.querySelectorAll(sel); }
@@ -10075,6 +10085,8 @@ function beginOffseason() {
   }
   // 本季临时状态到此结束；从现在起写入的休赛期选择将完整带入下一季。
   clearSeasonModsForNewOffseason();
+  // 上个休赛期的抱团抉择，在这里以新闻式记录回响（必须在清空模组之后）
+  if (typeof applySuperstarRecruitEcho === 'function') applySuperstarRecruitEcho();
   c.offseasonEventSeason = seasonKey;
   STATE._offseasonQueue = buildBranchEventQueue('offseason');
   STATE._offseasonEventIdx = 0;
@@ -10866,6 +10878,8 @@ function getSeasonEventState(game, result, stats) {
     nationalSpotlight: nationalSpotlight,
     deadlineWindow: deadlineWindow,
     isRookie: isRookie,
+    contender: gamesPlayed >= 20 && ((Number(season.wins) || 0) / gamesPlayed) >= 0.62,
+    struggling: gamesPlayed >= 20 && ((Number(season.wins) || 0) / gamesPlayed) <= 0.38,
     contractYear: Number.isFinite(contractYears) && contractYears <= 1
   };
 }
@@ -10904,6 +10918,9 @@ function getSeasonEventStateWeight(ev, state) {
   if (state.lowChemistry && ['locker_music','practice_argument','players_meeting','switch_defense','flight_seat'].indexOf(topic) >= 0) weight *= 1.8;
   if (state.poorPerformance && ['empty_gym','film_session','shot_map','late_pass','free_throw','coach_callout'].indexOf(topic) >= 0) weight *= 2;
   if (state.hotPerformance && ['shot_map','late_pass','free_throw','coach_callout'].indexOf(topic) >= 0) weight *= 0.35;
+  // 球队战绩也会改变事件类型：争冠队更多团队/氛围题材，滑落期更多更衣室与压力题材
+  if (state.contender && ['team_dinner','rookie_advice','veteran_rest','fan_letter','empty_gym','film_session'].indexOf(topic) >= 0) weight *= 1.3;
+  if (state.struggling && ['locker_music','practice_argument','players_meeting','switch_defense','flight_seat','coach_callout'].indexOf(topic) >= 0) weight *= 1.3;
   return Math.max(0.15, weight);
 }
 
@@ -18106,6 +18123,11 @@ var CAREER_STORY_NOTES = [
     legacy_once: '只做过一次，但让人记住了',
     legacy_open: '向球场外的世界做了开放'
   }},
+  { branch: 'superstar_recruit', title: '抱团抉择', fallback: '面对过抱团邀请', nodes: {
+    consider_team_up: '认真考虑过与巨星联手，最后还是留在了原地',
+    kept_distance: '拒绝了抱团，选了自己扛一支球队',
+    public_leverage: '把招募传闻变成了谈判筹码'
+  }},
   { branch: 'retirement_countdown', title: '退役方式', fallback: '为自己的退役做了安排', nodes: {
     postponed: '把退役推后过至少一次',
     legacy_legend: '退役成了传奇式的告别',
@@ -18155,6 +18177,41 @@ function buildCareerStoryFootnotes() {
     if (flags[pair[0]]) out.push(pair[1]);
   });
   return out;
+}
+
+/** 抱团抉择的赛季回响：下一个休赛期自动结算，不需要玩家再选一次 */
+function applySuperstarRecruitEcho() {
+  var c = STATE.career;
+  if (!c) return null;
+  var node = careerStoryBranchNode('superstar_recruit');
+  if (!node || node === 'start') return null;
+  var seasonKey = 'E' + (Number(c.seasonCount) || 0);
+  if (c.superstarEchoSeason === seasonKey) return null;
+  c.superstarEchoSeason = seasonKey;
+  var text;
+  if (node === 'consider_team_up') {
+    addSeasonMod('mediaPressure', 1, -10, 10);
+    text = '你夏天接那通招募电话的事被重新翻出来。你没有否认过认真考虑，更衣室里有人直接问过你到底怎么想。<br><br>结果：媒体压力+1；对你感兴趣的球队仍在观望。';
+  } else if (node === 'kept_distance') {
+    addProfileDelta('loyalty', 1);
+    addProfileDelta('fanSupport', 1);
+    text = '你拒绝了抱团邀约，这件事在你留守的城市里被讲成了另一个版本的故事：球迷开始真正把你当成自己人。<br><br>结果：忠诚+1；球迷支持+1。';
+  } else if (node === 'public_leverage') {
+    addProfileDelta('mediaTrust', 1);
+    addSeasonMod('mediaPressure', 1, -10, 10);
+    text = '你把招募传闻变成了谈判筹码，管理层被迫提前坐回桌前。有人欣赏这种职业，也有人觉得你太会算计。<br><br>结果：媒体信任+1；媒体压力+1。';
+  } else {
+    return null;
+  }
+  c.offseasonHistory = c.offseasonHistory || [];
+  c.offseasonHistory.push({
+    seasonNum: c.seasonCount,
+    eventId: 'superstar_recruit_echo',
+    event: '抱团抉择 · 回响',
+    choice: '自动结算',
+    result: text,
+  });
+  return text;
 }
 
 function calculateLegacyResult() {
