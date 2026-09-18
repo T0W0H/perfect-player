@@ -60,3 +60,20 @@ python tools/fetch_historical_headshots.py
 - Historical surprise cards are drawn with a 20% chance, with at most one historical card per round.
 - The 150 peak cards are frozen in `assets/data/perfect-player-historical-peak-table.json` (30 teams × PG/SG/SF/PF/C).
 - Normal pool builds read that table directly and do not scan `rosters01.csv` through `rosters19.csv` to recalculate peak cards.
+
+## 本地导入外部名单（可选，不会上传）
+
+`tools/import_external_pool.mjs` 可以把 [BuildMyNBAPlayer](https://github.com/dandyzw/BuildMyNBAPlayer)（在线版 <https://icr3am.com/nba-game/>）的球员名单转换成本项目能直接读取的覆盖脚本。产物写入 `assets/data/local/`，该目录已在 `.gitignore` 中：**只在本机生效，公开站点不会请求、也不会提交到仓库**。
+
+```bash
+# 1) 抓取线上构建（站点有防抓取，需要浏览器 UA）
+curl -sS -A "Mozilla/5.0" -e "https://icr3am.com/nba-game/" \
+  -o /tmp/icr3am-app3.html "https://icr3am.com/nba-game/__ai_app.html"
+
+# 2) 生成覆盖文件（也可指定本地 clone 的 nba2k-data.js：--source=repo <路径>）
+node tools/import_external_pool.mjs /tmp/icr3am-app3.html
+```
+
+页面会在**非 GitHub Pages** 环境自动尝试加载 `assets/data/local/nba2k-data.local.js` 并原地替换联盟名单；文件不存在时静默跳过。
+
+数据来源说明：对方仓库未提供许可证（README 注明仅供学习交流、勿商用），因此本项目只做本地转换与体验，不在公开仓库中分发其数据。

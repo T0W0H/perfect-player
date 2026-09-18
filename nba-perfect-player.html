@@ -25902,5 +25902,17 @@ if (window._sdkReady && document.getElementById('career-area')) {
 <script src="assets/js/perfect-player-event-library.js"></script>
 <script src="assets/js/perfect-player-hupu-extensions.js?v=20260810-career-state-effects"></script>
 <script src="assets/js/perfect-player-enhancements.js?v=20260809-achievement-rules-v2"></script>
+<script>
+// 本地名单覆盖（可选）：由 tools/import_external_pool.mjs 生成到 assets/data/local/，
+// 该目录已在 .gitignore 中，公开站点不会请求也不会上传这份数据。
+(function () {
+  var host = (location && location.hostname) || '';
+  if (/\.github\.io$/i.test(host)) return; // 公开站点跳过
+  var s = document.createElement('script');
+  s.src = 'assets/data/local/nba2k-data.local.js';
+  s.onerror = function () {}; // 未安装本地名单时静默跳过
+  document.head.appendChild(s);
+})();
+</script>
 </body>
 </html>

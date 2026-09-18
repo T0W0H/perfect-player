@@ -4,3 +4,6 @@ __pycache__/
 *.pyc
 output/
 *.log
+
+# 本地导入的第三方名单数据（tools/import_external_pool.mjs 生成，勿提交）
+assets/data/local/
