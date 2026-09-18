@@ -2,7 +2,17 @@
 
 一个纯网页的篮球生涯模拟游戏：创建自己的球员，从现役球员与名人堂/近代全明星惊喜卡身上获取能力，完成一个虎扑风格的 NBA 单赛季。
 
-在线体验：<https://zyz9408.github.io/perfect-player/>
+在线体验：<https://t0w0h.github.io/perfect-player/>
+
+> 上游原版（zyz9408）：<https://zyz9408.github.io/perfect-player/>。本仓库是它的分支，线上跑的是本仓库自己的版本。
+
+## 发布（GitHub Pages，免费）
+
+- **唯一真源是 `nba-perfect-player.html`**；`index.html` 只是一张跳转页，不要往里面塞代码。
+- 开启方式（只需做一次）：仓库 `Settings` → `Pages` → Source 选 `Deploy from a branch` → Branch 选 `main` + `/ (root)` → Save。
+- 地址：<https://t0w0h.github.io/perfect-player/>。之后 `main` 每次 push 会自动重新发布，不需要额外操作。
+- 公开站点**不会**加载 `assets/data/local/`：该目录在 `.gitignore` 里，且页面只在非 `github.io` 域名下才会尝试加载（避免分发第三方名单）。
+- 想让仓库转私有还能发布，可以换 Cloudflare Pages / Netlify（免费额度支持私有仓库）。
 
 ## 本地运行
 
@@ -13,6 +23,14 @@ python -m http.server 8035
 ```
 
 然后访问 <http://localhost:8035/>。
+
+## 开发约定
+
+- 改完功能先验证：逐个跑 `tests/*.test.js`，再跑一遍内联脚本语法检查
+  （`node -e` 抽取 `<script>` 块 + `new Function`，见 `tests/` 里的做法）。
+- **每次功能迭代顺手做一次小扫除**：删掉被注释掉的旧实现、消除重复定义、清掉确无用处的函数。
+- **要加新功能 / 拆新模块时再拆文件**，顺序是「纯工具与文本池 → 模拟引擎 → 展示层」，不要大爆炸式重构。
+- 提交信息用中文。
 
 ## 内容
 
