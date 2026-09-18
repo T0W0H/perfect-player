@@ -24,6 +24,15 @@ python -m http.server 8035
 
 然后访问 <http://localhost:8035/>。
 
+## 历史头像（仓库瘦身策略）
+
+`assets/data/historical/headshots/` 里**只保留游戏运行时真正引用的那批**（443 张，已缩到 192px，共约 7 MB）。
+
+- 历史上它曾包含 5886 张（包括 1947 年以来每一届选秀的每位球员），工作区 395 MB、`.git` 262 MB，克隆极慢
+- 现在该目录已写进 `.gitignore`：用 `python tools/fetch_historical_headshots.py` 重新下载的原图**不会再被提交**
+- 新增的运行时引用图片需要显式提交：`git add -f assets/data/historical/headshots/<文件名>`
+- `assets/data/historical/*.json`（`players.json` 等）来自外部数据源，仓库里没有生成脚本，**必须保留**
+
 ## 开发约定
 
 - 改完功能先验证：逐个跑 `tests/*.test.js`，再跑一遍内联脚本语法检查
