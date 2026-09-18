@@ -54,8 +54,7 @@ const source = [
   extractFunction(html, 'fmtProfileValue'),
   extractFunction(html, 'renderCareerProfileBody'),
   extractFunction(html, 'renderCareerProfilePanel'),
-  extractFunction(html, 'renderSeasonProfileDetails'),
-  'return { CAREER_PROFILE_GUIDE:CAREER_PROFILE_GUIDE, CAREER_SEASON_MOD_GUIDE:CAREER_SEASON_MOD_GUIDE, fmtProfileValue:fmtProfileValue, renderCareerProfileBody:renderCareerProfileBody, renderCareerProfilePanel:renderCareerProfilePanel, renderSeasonProfileDetails:renderSeasonProfileDetails };',
+  'return { CAREER_PROFILE_GUIDE:CAREER_PROFILE_GUIDE, CAREER_SEASON_MOD_GUIDE:CAREER_SEASON_MOD_GUIDE, fmtProfileValue:fmtProfileValue, renderCareerProfileBody:renderCareerProfileBody, renderCareerProfilePanel:renderCareerProfilePanel };',
 ].join('\n');
 
 let passed = 0;
@@ -157,18 +156,14 @@ check('说明文案覆盖了事件里会出现的每一个数值', () => {
   });
 });
 
-check('赛季页用的是折叠版，展开后是同一份内容', () => {
-  const out = makeApi({ profile: { coachTrust: 6 } }).renderSeasonProfileDetails();
-  assert.ok(out.indexOf('<details') === 0, out.slice(0, 40));
-  assert.ok(out.indexOf('生涯档案') >= 0);
-  assert.ok(out.indexOf('教练信任') >= 0, '展开后应包含具体条目');
-  assert.ok(out.indexOf('sr-section-title') < 0, '赛季页标题由 summary 承担，不重复渲染');
+check('没有生涯状态时不渲染档案', () => {
+  const api = makeApi({ state: {} });
+  assert.equal(api.renderCareerProfilePanel(), '');
 });
 
-check('没有生涯状态时不渲染赛季页档案', () => {
-  const api = makeApi({ state: {} });
-  assert.equal(api.renderSeasonProfileDetails(), '');
-  assert.equal(api.renderCareerProfilePanel(), '');
+check('赛季页不再挂档案（节奏快，那里用不上）', () => {
+  assert.equal(html.indexOf('renderSeasonProfileDetails'), -1, '赛季页的档案入口应该已经撤掉');
+  assert.equal(html.indexOf('season-profile'), -1, '相关样式也应一并清理');
 });
 
 console.log('\n全部通过：' + passed + ' 项');

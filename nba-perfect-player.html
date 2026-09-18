@@ -503,13 +503,6 @@ body{font-family:var(--font-body);background:var(--bg);color:var(--text);min-hei
     .pf-w{flex:1;font-size:10px;color:var(--text-dim);line-height:1.5}
     .pf-note{font-size:11px;color:var(--text-dim);line-height:1.6;padding:2px 0}
     .pf-empty{font-size:11px;color:var(--text-muted);padding:4px 0}
-    .season-profile{margin:8px 12px 0;background:var(--bg-card);border:1.5px solid var(--border);border-radius:10px;overflow:hidden}
-    .season-profile>summary{list-style:none;cursor:pointer;padding:8px 10px;font-family:var(--font-display);font-size:12px;font-weight:700;color:var(--text-dim)}
-    .season-profile>summary::-webkit-details-marker{display:none}
-    .season-profile[open]>summary{border-bottom:1px solid var(--border);color:var(--orange)}
-    .season-profile-body{padding:8px 10px 4px}
-    .season-profile-body .pf-row{background:var(--bg)}
-    .season-profile-body .cs-section{margin-bottom:6px}
     .cs-season-detail-overlay{position:fixed;inset:0;z-index:300;background:rgba(0,0,0,0.45);display:flex;align-items:center;justify-content:center;padding:16px;animation:fadeIn .2s ease;backdrop-filter:blur(4px)}
     .cs-season-detail-modal{background:var(--bg);border:2px solid var(--border);border-radius:var(--radius);width:100%;max-width:380px;max-height:80vh;overflow-y:auto;box-shadow:0 8px 48px rgba(0,0,0,0.25);animation:slideUp .25s ease}
     .cs-detail-header{display:flex;align-items:center;justify-content:space-between;padding:12px 14px;border-bottom:1px solid var(--border);position:sticky;top:0;background:var(--bg);z-index:1}
@@ -3737,19 +3730,23 @@ var EVENT_CHOICE_PREDICTION_LABELS = {
   moraleBonus:'士气', mediaPressure:'媒体压力', staminaLoad:'体能负荷',
   draftStockBonus:'选秀行情'
 };
+// 方向由 ▲▼ 直接表达，这份表只留给需要解释的地方（保留以便将来复用）
 var EVENT_CHOICE_BAD_WHEN_RAISED = {
   controversy:true, injuryRiskBonus:true, formVariance:true,
   mediaPressure:true, staminaLoad:true
 };
 
-function formatEventChoiceEffect(key, amount, isAttribute) {
-  var label = isAttribute && typeof attrCN === 'function' ? attrCN(key) : (EVENT_CHOICE_PREDICTION_LABELS[key] || key);
-  var strong = Math.abs(amount) >= 2 ? '明显' : '';
-  if (key === 'formVariance') return amount < 0 ? '状态' + strong + '更稳定' : '状态波动' + strong + '增加';
-  if (EVENT_CHOICE_BAD_WHEN_RAISED[key]) return label + strong + (amount > 0 ? '增加' : '下降');
-  return label + strong + (amount > 0 ? '提升' : '下降');
+// 选项提示要短：能写数字就不写形容词，必须模糊时就用箭头
+var EVENT_CHOICE_PREVIEW_MAX = 22;
+function eventChoiceEffectLabel(key, isAttribute) {
+  if (isAttribute && typeof attrCN === 'function') return attrCN(key);
+  return EVENT_CHOICE_PREDICTION_LABELS[key] || key;
 }
 
+function formatEventChoiceEffect(key, amount, isAttribute) {
+  var n = Math.round((Number(amount) || 0) * 10) / 10;
+  return eventChoiceEffectLabel(key, isAttribute) + ' ' + (n > 0 ? '+' : '') + n;
+}
 function extractEventChoiceEffectPreview(choice) {
   if (!choice || typeof choice.apply !== 'function') return '';
   var source = '';
@@ -3768,30 +3765,36 @@ function extractEventChoiceEffectPreview(choice) {
   });
 
   var branchNote = '';
-  if (/setBranchNode\(|setBranchState\(|setBranch\b/.test(source)) branchNote = '推进剧情线（改变之后能遇到的事件与可选路线）';
-  else if (/flags\./.test(source)) branchNote = '记录为生涯标签（会进入退役评价）';
+  if (/setBranchNode\(|setBranchState\(|setBranch\b/.test(source)) branchNote = '推进剧情';
+  else if (/flags\./.test(source)) branchNote = '生涯标签';
 
   // 合同条款这类结构化结果：不影响任何数值，但确实是玩家关心的变化
   var structural = [];
-  if (/\.twoWay\s*=/.test(source)) structural.push('合同身份（双向 / 正式）');
+  if (/\.twoWay\s*=/.test(source)) structural.push('合同身份');
   if (/\.contractYears\s*=/.test(source)) structural.push('合同年限');
   else if (/\.contract\s*=/.test(source)) structural.push('合同');
 
   if (!changes.length && !structural.length) return branchNote;
-  var head = risky ? '结果带随机或前置条件，会改变 ' : '';
-  var all = changes.slice(0, 4).concat(structural);
-  var tail = branchNote ? ('；并' + branchNote) : '';
-  return head + all.join('、') + tail;
+  // 提示是按钮下面的小字，给一个长度预算，超了就少列一项
+  var head = risky ? '可能：' : '';
+  var tail = branchNote ? ('；' + branchNote) : '';
+  var budget = EVENT_CHOICE_PREVIEW_MAX - head.length - tail.length;
+  var parts = changes.slice(0, 3).concat(structural);
+  var picked = '';
+  for (var i = 0; i < parts.length; i++) {
+    var candidate = picked ? picked + '、' + parts[i] : parts[i];
+    if (candidate.length > budget && picked) break;
+    picked = candidate;
+  }
+  return picked ? head + picked + tail : branchNote;
 }
 
-/** 只报道方向，不报道具体数字：用于有分支 / 随机的选项 */
+/** 只报道方向：用于有分支 / 随机的选项（▲上升、▼下降、▲▼不确定） */
 function formatEventChoiceEffectDirection(key, min, max, isAttribute) {
-  var label = isAttribute && typeof attrCN === 'function' ? attrCN(key) : (EVENT_CHOICE_PREDICTION_LABELS[key] || key);
-  if (key === 'formVariance') return min < 0 ? '状态可能更稳' : '状态波动可能增加';
-  var bad = !!EVENT_CHOICE_BAD_WHEN_RAISED[key];
-  if (min > 0) return label + '可能' + (bad ? '增加' : '提升');
-  if (max < 0) return label + '可能下降';
-  return label + '可能变化';
+  var label = eventChoiceEffectLabel(key, isAttribute);
+  if (min > 0) return label + '▲';
+  if (max < 0) return label + '▼';
+  return label + '▲▼';
 }
 
 /** 从 apply 源码里把所有可识别的数值变化收集起来（保留出现顺序） */
@@ -3835,13 +3838,12 @@ function getEventChoicePrediction(choice, event, choiceIndex) {
   if (hint && effectPreview && !hasEventChoiceOutcomeForecast(hint)) {
     hint = hint.replace(/[。；;，,\s]+$/, '') + '；' + effectPreview;
   } else if (hint && !hasEventChoiceOutcomeForecast(hint)) {
-    hint = hint.replace(/[。；;，,\s]+$/, '') + '；结果带随机性，会改变球队状态与生涯档案（不预告具体数值）';
+    hint = hint.replace(/[。；;，,\s]+$/, '') + '；影响见生涯档案';
   } else if (!hint && effectPreview) {
     hint = effectPreview;
   } else if (!hint) {
-    var label = String(choice.label || ('选项' + ((choiceIndex || 0) + 1))).trim();
     var title = String(event && event.title || '本事件').replace(/^(赛季日常|赛季事件)[:：]\s*/, '');
-    hint = '选择“' + label + '”后将推进“' + title + '”路线；具体数值可在生涯数据页的「生涯档案」查看';
+    hint = '推进“' + title + '”路线，影响见生涯档案';
   }
   return hint;
 }
@@ -6144,7 +6146,7 @@ function renderDotGrid() {
 
   // 清空旧内容
   html('season-controls').innerHTML = '';
-  html('gamecast-area').innerHTML = renderTripleChaseBlock() + renderSeasonProfileDetails();
+  html('gamecast-area').innerHTML = renderTripleChaseBlock();
   html('game-list').innerHTML = '';
 
   html('season-header').innerHTML =
@@ -6287,6 +6289,7 @@ function calcTeamLineup(team) {
     STATE.position || '',
     STATE.finalOVR || '',
     careerEffects.lineupBonus || 0,
+    (team === STATE.careerTeam && STATE.career && STATE.career.flags && STATE.career.flags.startBench) ? 'sixthman' : 'starter',
     STATE.season?.isPlayoffs ? 'po' : 'rs'
   ].join('||');
   STATE._lineupCache = STATE._lineupCache || {};
@@ -6312,6 +6315,9 @@ function calcTeamLineup(team) {
   const POS_ORDER = ['PG', 'SG', 'SF', 'PF', 'C'];
   const starters = {};
   const assigned = new Set();
+  // 本赛季定位选了「第六人」时，不把你放进首发竞争，直接去带替补
+  const userComesOffBench = !!(team === STATE.careerTeam && userPlayer
+    && STATE.career && STATE.career.flags && STATE.career.flags.startBench);
 
   function fillBestSmall(posList, posIdx, curStarters, curAssigned, curScore, best) {
     if (posIdx >= posList.length) {
@@ -6326,6 +6332,7 @@ function calcTeamLineup(team) {
     const candidates = allPlayers
       .map((p, i) => ({ player: p, idx: i, ovr: parseInt(p._lineupOvr != null ? p._lineupOvr : p.ovr) || 0 }))
       .filter(({ idx }) => !curAssigned.has(idx))
+      .filter(({ player }) => !(userComesOffBench && player._isUser))
       .filter(({ player }) => canPlayPosition(player.pos || '', pos))
       .sort((a, b) => b.ovr - a.ovr)
       .slice(0, 4);
@@ -11068,14 +11075,7 @@ function renderCareerProfileBody() {
   return h;
 }
 
-/** 赛季页折叠版的生涯档案：只读，不占地方 */
-function renderSeasonProfileDetails() {
-  if (!STATE.career) return '';
-  var body = typeof renderCareerProfileBody === 'function' ? renderCareerProfileBody() : '';
-  if (!body) return '';
-  return '<details class="season-profile"><summary>🧬 生涯档案</summary>'
-    + '<div class="season-profile-body">' + body + '</div></details>';
-}
+/** 赛季页折叠版的生涯档案：已撤下（节奏快，赛季页用不上） */
 
 function fmtProfileValue(value) {
   var n = Math.round((Number(value) || 0) * 10) / 10;
@@ -20019,8 +20019,32 @@ function showRosterReview() {
   }
   html += '</div>';
 
+  // 本赛季定位：首发 / 第六人（会影响上场时间与最佳第六人评选）
+  var isBenchRole = !!(c.flags && c.flags.startBench);
+  html += '<div style="margin-top:8px;background:var(--bg-card);border:2px solid var(--border);border-radius:var(--radius-sm);padding:8px 10px;">';
+  html += '<div style="font-family:var(--font-display);font-size:11px;color:var(--orange);letter-spacing:0.5px;">🎯 本赛季定位</div>';
+  html += '<div style="display:flex;gap:6px;margin-top:6px;">';
+  html += '<button class="btn btn-sm ' + (isBenchRole ? 'btn-secondary' : 'btn-primary') + '" onclick="setSeasonRole(\'starter\')" style="flex:1;">首发</button>';
+  html += '<button class="btn btn-sm ' + (isBenchRole ? 'btn-primary' : 'btn-secondary') + '" onclick="setSeasonRole(\'bench\')" style="flex:1;">第六人</button>';
+  html += '</div>';
+  html += '<div style="font-size:10px;color:var(--text-dim);margin-top:5px;line-height:1.5;">' + (isBenchRole
+    ? '替补出发：时间更少，场均 18+ 分可竞争最佳第六人'
+    : '首发出场：正常轮换（第六人奖项只评替补）') + '</div>';
+  html += '</div>';
+
   html += '</div>';
   document.getElementById('roster-review-content').innerHTML = html;
+}
+
+/** 切换本赛季定位：首发 / 第六人 */
+function setSeasonRole(role) {
+  if (!STATE.career) return;
+  STATE.career.flags = STATE.career.flags || {};
+  if (role === 'bench') STATE.career.flags.startBench = true;
+  else delete STATE.career.flags.startBench;
+  clearLineupCache();
+  syncUserStarterStatus();
+  showRosterReview();
 }
 
 function startNewSeason() {
