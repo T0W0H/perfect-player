@@ -5192,7 +5192,7 @@ function updateAwardStreaks() {
   var seasonKey = c && c.seasonCount;
   if (!seasonKey || STATE._awardStreakSeason === seasonKey) return;
   STATE._awardStreakSeason = seasonKey;
-  var acts = ['mvp', 'dpoy', 'sixthman'];
+  var acts = ['mvp', 'dpoy', 'sixthman', 'scoring', 'rebound', 'assist', 'steal', 'block', 'allDefense', 'mip'];
   var userObj = getUserPlayerObject();
   var winnerByAct = {};
   (STATE.season.awards || []).forEach(function(a) {
@@ -5638,23 +5638,73 @@ function calcSeasonAwards() {
   })();
 
   // ==================== 数据王（得分 / 篮板 / 助攻 / 抢断 / 盖帽） ====================
-  // 联盟球员没有逐场统计，沿用全明星候选的口径：用 OVR + 位置推算数据，再叠少量随机波动。
+  // 联盟球员没有逐场统计，这里用「属性驱动 + 出场角色 + 球队战绩」估算，口径贴近现实：
+  // 替补不可能拿数据王；排名仍是确定性比较（不掷骰子），只保留 ±3% 的年度状态波动。
+  var _npcLineupCache = {};
+  function npcGetLineup(team) {
+    if (!_npcLineupCache[team]) {
+      try { _npcLineupCache[team] = calcTeamLineup(team); } catch (e) { _npcLineupCache[team] = null; }
+    }
+    return _npcLineupCache[team];
+  }
+  /** 出场角色：首发 1、第六人 0.7、其他替补 0.45（数据王与防守阵容共用） */
+  function npcRoleScale(team, player) {
+    var lineup = npcGetLineup(team);
+    if (!lineup) return 1;
+    var order = ['PG', 'SG', 'SF', 'PF', 'C'];
+    for (var _o = 0; _o < order.length; _o++) {
+      if (lineup.starters && lineup.starters[order[_o]] === player) return 1;
+    }
+    var bench = lineup.bench || [];
+    return bench.indexOf(player) === 0 ? 0.7 : 0.45;
+  }
   (function() {
+    /** 连庄衰减：同一人每连庄一次 -6%，下限 0.8，避免一个 NPC 垄断十年 */
+    function npcTitleStreakFactor(player, act) {
+      var streak = getPlayerAwardStreak(player, act);
+      return streak < 1 ? 1 : Math.max(0.8, 1 - streak * 0.06);
+    }
+    /** 球队战绩微调：强队球星略高、垫底队略低（篮板/助攻权重更小） */
+    function npcTeamAdj(team, key) {
+      var rank = getLeagueRank(team);
+      var adj = rank <= 4 ? 1.5 : rank <= 8 ? 0.5 : rank > 20 ? -1.0 : 0;
+      if (key === 'reb') return adj * 0.3;
+      if (key === 'ast') return adj * 0.2;
+      if (key === 'pts') return adj;
+      return adj * 0.15;
+    }
+    function getA(p, key) { return parseInt(p[key]) || 60; }
+    function posOf(p) { return (p.pos || 'SF').split('/')[0].trim(); }
+
+    // 属性驱动估算，校准到「联盟顶级 ≈ 30 分 / 13 板 / 12 助 / 2.1 断 / 3.4 帽」
     function estimateNpcStat(p, key) {
       var ovr = parseInt(p.ovr) || 60;
-      var pos = (p.pos || 'SF').split('/')[0].trim();
-      var noise = (Math.random() - 0.5);
-      if (key === 'pts') return ovr * 0.34 - 2 + noise * 2.6;
+      var pos = posOf(p);
+      if (key === 'pts') {
+        var off = getA(p,'threePT') * 0.30 + getA(p,'MID') * 0.25 + getA(p,'FIN') * 0.30 + getA(p,'DNK') * 0.15;
+        var blend = off * 0.75 + ovr * 0.25;
+        var posMul = pos === 'SG' ? 1.03 : pos === 'PG' ? 1.0 : pos === 'SF' ? 0.98 : pos === 'PF' ? 0.95 : 0.93;
+        return Math.max(4, (12 + (blend - 74) * 0.9) * posMul);
+      }
       if (key === 'reb') {
-        var reb = pos === 'C' ? ovr * 0.16 + 1.5 : (pos === 'PF' ? ovr * 0.13 + 1 : ovr * 0.07 + 1);
-        return reb + noise * 1.2;
+        var rebF = getA(p,'REB') * 0.7 + getA(p,'STR') * 0.3;
+        var rebBase = pos === 'C' ? 7.5 : pos === 'PF' ? 6.5 : pos === 'SF' ? 5.0 : pos === 'SG' ? 4.2 : 3.8;
+        return Math.max(1, rebBase + (rebF - 60) * 0.165);
       }
       if (key === 'ast') {
-        var ast = pos === 'PG' ? ovr * 0.13 + 2 : (pos === 'SG' ? ovr * 0.08 + 1 : ovr * 0.05 + 1);
-        return ast + noise * 1.2;
+        var pasF = getA(p,'PAS') * 0.7 + getA(p,'HAN') * 0.3;
+        // 组织核心例外：中锋/大前只要传球 92+，就按顶级组织者算（约基奇式）
+        var orgCore = (pos === 'C' || pos === 'PF') && getA(p,'PAS') >= 92;
+        var astBase = orgCore ? 7.2 : (pos === 'PG' ? 12.0 : pos === 'SG' ? 5.5 : pos === 'SF' ? 5.0 : pos === 'PF' ? 4.2 : 3.8);
+        return Math.max(1, astBase * Math.pow(pasF / 95, 3.29));
       }
-      if (key === 'stl') return (parseInt(p.PDEF) || 60) * 0.012 + (parseInt(p.ATH) || 60) * 0.008 + 0.2 + noise * 0.25;
-      return (parseInt(p.BLK) || 50) * 0.02 + (parseInt(p.IDEF) || 60) * 0.012 + noise * 0.3;
+      if (key === 'stl') {
+        var pdF = getA(p,'PDEF') * 0.7 + getA(p,'ATH') * 0.3;
+        return Math.max(0.1, 2.1 * Math.pow(pdF / 95, 3.0));
+      }
+      var blkF = getA(p,'BLK') * 0.75 + getA(p,'IDEF') * 0.25;
+      var blkBase = pos === 'C' ? 3.4 : pos === 'PF' ? 2.3 : pos === 'SF' ? 1.1 : 0.9;
+      return Math.max(0.1, blkBase * Math.pow(blkF / 95, 3.0));
     }
 
     var STAT_TITLES = [
@@ -5670,14 +5720,19 @@ function calcSeasonAwards() {
       var npcValues = [];
       var bestNpc = null, bestVal = -1, bestTeam = '';
       for (var _t = 0; _t < NBA2K_TEAMS.length; _t++) {
-        var roster = NBA2K_DATA[NBA2K_TEAMS[_t]] || [];
+        var team = NBA2K_TEAMS[_t];
+        var roster = NBA2K_DATA[team] || [];
+        var teamAdj = npcTeamAdj(team, cfg.stat);
         for (var _i = 0; _i < roster.length; _i++) {
           var p = roster[_i];
           if (p._isUser) continue;
-          if ((parseInt(p.ovr) || 0) < 72) continue; // 只在轮换球员里评
-          var value = estimateNpcStat(p, cfg.stat);
+          if ((parseInt(p.ovr) || 0) < 70) continue; // 只在轮换球员里评
+          var value = (estimateNpcStat(p, cfg.stat) + teamAdj)
+            * npcRoleScale(team, p)
+            * npcTitleStreakFactor(p, cfg.act)
+            * (0.97 + Math.random() * 0.06); // ±3% 年度状态波动
           npcValues.push(value);
-          if (value > bestVal) { bestVal = value; bestNpc = p; bestTeam = NBA2K_TEAMS[_t]; }
+          if (value > bestVal) { bestVal = value; bestNpc = p; bestTeam = team; }
         }
       }
       npcValues.sort(function(a, b) { return b - a; });
@@ -5685,9 +5740,9 @@ function calcSeasonAwards() {
       var betterCount = 0;
       for (var _v = 0; _v < npcValues.length; _v++) { if (npcValues[_v] > userVal) betterCount++; }
       var rankNum = betterCount + 1;
-      var userWins = gamesEnoughForTitle && rankNum === 1;
+      var userWins = gamesEnoughForTitle && userVal > 0 && rankNum === 1;
       var rankText;
-      if (!gamesEnoughForTitle) rankText = '出勤不足';
+      if (!gamesEnoughForTitle) rankText = '出勤不足（' + g + ' 场）';
       else if (rankNum === 1) rankText = '🥇 第一名';
       else if (rankNum === 2) rankText = '🥈 第二名';
       else if (rankNum === 3) rankText = '🥉 第三名';
@@ -5719,7 +5774,7 @@ function calcSeasonAwards() {
           name: p.cname || p.name,
           playerName: p.name || '',
           team: NBA2K_TEAMS[_t],
-          score: ((parseInt(p.PDEF) || 60) * 0.5) + ((parseInt(p.IDEF) || 60) * 0.5) + ((parseInt(p.BLK) || 50) * 0.8) + ((parseInt(p.ovr) || 70) * 0.3),
+          score: (((parseInt(p.PDEF) || 60) * 0.5) + ((parseInt(p.IDEF) || 60) * 0.5) + ((parseInt(p.BLK) || 50) * 0.8) + ((parseInt(p.ovr) || 70) * 0.3)) * npcRoleScale(NBA2K_TEAMS[_t], p),
         });
       }
     }
