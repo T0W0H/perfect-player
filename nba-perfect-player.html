@@ -378,6 +378,14 @@ body{font-family:var(--font-body);background:var(--bg);color:var(--text);min-hei
 .mc-chip-gold{border-color:var(--gold);color:var(--gold)}
 .card-award{display:inline-block;padding:4px 10px;border-radius:8px;font-family:var(--font-display);font-size:12px;background:var(--orange-dim);color:var(--orange)}
     .dot-grid{display:block;padding:12px 16px;text-align:center;background:var(--bg-card);border:2px solid var(--border);border-radius:var(--radius);margin:8px 0;line-height:1.8}
+    /* ── 三双时刻 ── */
+    .chase-block{margin:8px 12px 0;padding:8px 10px;background:var(--orange-bg);border:1.5px solid var(--orange-light);border-radius:10px}
+    .chase-title{font-family:var(--font-display);font-size:11px;font-weight:700;color:var(--orange);margin-bottom:5px}
+    .chase-row{display:flex;gap:6px;font-size:10px;color:var(--text-dim);line-height:1.5}
+    .chase-g{font-family:var(--font-display);font-weight:700;color:var(--orange);min-width:26px}
+    .chase-line{flex:1}
+    .chase-line b{color:var(--text);font-weight:700}
+    .chase-note{font-size:10px;color:var(--text-dim);padding:1px 0 4px 32px}
     .dot{width:14px;height:14px;border-radius:50%;display:inline-block;margin:1px 2px;flex-shrink:0}
     .dot-w{background:#2ec4b6;box-shadow:0 1px 3px rgba(46,196,182,0.3)}
     .dot-l{background:#e63946;box-shadow:0 1px 3px rgba(230,57,70,0.3)}
@@ -482,6 +490,19 @@ body{font-family:var(--font-body);background:var(--bg);color:var(--text);min-hei
     .trend-leap-stat{font-family:var(--font-display);color:var(--text-dim);white-space:nowrap}
     .trend-leap-stat.up{color:var(--green)}
     .trend-leap-stat.down{color:var(--red)}
+    /* ── 生涯档案 ── */
+    .pf-sum{font-size:12px;color:var(--text-dim);padding:2px 0 3px}
+    .pf-sum b{font-family:var(--font-display);color:var(--text)}
+    .pf-effect{font-size:11px;color:var(--orange);padding:0 0 7px}
+    .pf-sub{font-family:var(--font-display);font-size:11px;font-weight:700;color:var(--text-dim);padding:8px 0 4px}
+    .pf-row{display:flex;align-items:baseline;gap:6px;padding:5px 8px;background:var(--bg-card);border:1.5px solid var(--border);border-radius:8px;margin-bottom:4px}
+    .pf-k{font-family:var(--font-display);font-size:12px;font-weight:700;min-width:64px}
+    .pf-v{font-family:var(--font-display);font-size:12px;font-weight:700;min-width:34px;color:var(--text-dim)}
+    .pf-v.up{color:var(--green)}
+    .pf-v.down{color:var(--red)}
+    .pf-w{flex:1;font-size:10px;color:var(--text-dim);line-height:1.5}
+    .pf-note{font-size:11px;color:var(--text-dim);line-height:1.6;padding:2px 0}
+    .pf-empty{font-size:11px;color:var(--text-muted);padding:4px 0}
     .cs-season-detail-overlay{position:fixed;inset:0;z-index:300;background:rgba(0,0,0,0.45);display:flex;align-items:center;justify-content:center;padding:16px;animation:fadeIn .2s ease;backdrop-filter:blur(4px)}
     .cs-season-detail-modal{background:var(--bg);border:2px solid var(--border);border-radius:var(--radius);width:100%;max-width:380px;max-height:80vh;overflow-y:auto;box-shadow:0 8px 48px rgba(0,0,0,0.25);animation:slideUp .25s ease}
     .cs-detail-header{display:flex;align-items:center;justify-content:space-between;padding:12px 14px;border-bottom:1px solid var(--border);position:sticky;top:0;background:var(--bg);z-index:1}
@@ -3767,13 +3788,13 @@ function getEventChoicePrediction(choice, event, choiceIndex) {
   if (hint && effectPreview && !hasEventChoiceOutcomeForecast(hint)) {
     hint = hint.replace(/[。；;，,\s]+$/, '') + '；' + effectPreview;
   } else if (hint && !hasEventChoiceOutcomeForecast(hint)) {
-    hint = hint.replace(/[。；;，,\s]+$/, '') + '；将改变后续剧情与人物评价';
+    hint = hint.replace(/[。；;，,\s]+$/, '') + '；结果带随机性，会改变球队状态与生涯档案（不预告具体数值）';
   } else if (!hint && effectPreview) {
     hint = effectPreview;
   } else if (!hint) {
     var label = String(choice.label || ('选项' + ((choiceIndex || 0) + 1))).trim();
     var title = String(event && event.title || '本事件').replace(/^(赛季日常|赛季事件)[:：]\s*/, '');
-    hint = '选择“' + label + '”后将推进“' + title + '”路线，并影响后续剧情';
+    hint = '选择“' + label + '”后将推进“' + title + '”路线；具体数值可在生涯数据页的「生涯档案」查看';
   }
   return hint;
 }
@@ -6032,6 +6053,21 @@ function showAwardsScreen() {
 }
 
 // ★ 实验性：82 场赛果点阵图
+function renderTripleChaseBlock(limit) {
+  var moments = getTripleChaseMoments(limit || 3);
+  if (!moments.length) return '';
+  var h = '<div class="chase-block"><div class="chase-title">三双时刻</div>';
+  moments.forEach(function(m) {
+    var st = m.stats;
+    var opp = m.opponent ? getTeamName(m.opponent) : '';
+    h += '<div class="chase-row"><span class="chase-g">G' + m.gameNum + '</span>';
+    h += '<span class="chase-line">' + (m.won ? '胜' : '负') + ' ' + opp + ' · <b>' + st.pts + '分 ' + st.reb + '板 ' + st.ast + '助</b></span></div>';
+    h += '<div class="chase-note">' + m.note + '</div>';
+  });
+  h += '</div>';
+  return h;
+}
+
 function renderDotGrid() {
   try {
   showScreen('screen-season');
@@ -6049,10 +6085,11 @@ function renderDotGrid() {
   var dotsHtml = '';
   if (rec.games && rec.games.length > 0) {
     rec.games.forEach(function(g, i) {
+      var tdTag = (g.stats && g.stats._tripleChase) ? ' · 🔥 三双' : '';
       if (g.suspended) {
         dotsHtml += '<span class="dot dot-x" title="G' + (i + 1) + ': 禁赛">✕</span>';
       } else {
-        dotsHtml += '<span class="dot ' + (g.result.won ? 'dot-w' : 'dot-l') + '" title="G' + (i + 1) + ': ' + (g.result.won ? '胜' : '负') + ' ' + getTeamName(g.game.opponent) + ' ' + (g.result.scoreA || '') + '-' + (g.result.scoreB || '') + '"></span>';
+        dotsHtml += '<span class="dot ' + (g.result.won ? 'dot-w' : 'dot-l') + '" title="G' + (i + 1) + ': ' + (g.result.won ? '胜' : '负') + ' ' + getTeamName(g.game.opponent) + ' ' + (g.result.scoreA || '') + '-' + (g.result.scoreB || '') + tdTag + '"></span>';
       }
       if ((i + 1) % 14 === 0) dotsHtml += '<br>';
     });
@@ -6060,7 +6097,7 @@ function renderDotGrid() {
 
   // 清空旧内容
   html('season-controls').innerHTML = '';
-  html('gamecast-area').innerHTML = '';
+  html('gamecast-area').innerHTML = renderTripleChaseBlock();
   html('game-list').innerHTML = '';
 
   html('season-header').innerHTML =
@@ -7005,16 +7042,19 @@ function liftStatToDoubleDigit(stats, key) {
 function completeTripleDoubleLine(stats) {
   if (!stats) return false;
   var changed = false;
+  var lifted = [];
   var pts = Number(stats.pts) || 0;
   if (pts < 10) {
     var addTwo = Math.ceil((10 - pts) / 2);
     stats.pts = pts + addTwo * 2;
     stats.fgm = (Number(stats.fgm) || 0) + addTwo;
     stats.fga = (Number(stats.fga) || 0) + addTwo;
+    lifted.push('得分');
     changed = true;
   }
-  if (liftStatToDoubleDigit(stats, 'reb')) changed = true;
-  if (liftStatToDoubleDigit(stats, 'ast')) changed = true;
+  if (liftStatToDoubleDigit(stats, 'reb')) { lifted.push('篮板'); changed = true; }
+  if (liftStatToDoubleDigit(stats, 'ast')) { lifted.push('助攻'); changed = true; }
+  if (changed && lifted.length) stats._tripleChaseLifted = lifted.join('、');
   return changed;
 }
 
@@ -7027,12 +7067,51 @@ function applyTripleDoubleChase(stats, attrs, pos, randomFn) {
   var cfg = getTripleChaseCfg(pos);
   if (rng() < cfg.nightChance) {
     // 手感、篮板和传球同时在线的一晚：就算前两节平平，也让它长成三双
-    return completeTripleDoubleLine(stats) ? 'night' : null;
+    if (!completeTripleDoubleLine(stats)) return null;
+    stats._tripleChase = 'night';
+    return 'night';
   }
   if (isTripleChaseShape(stats) && rng() < cfg.chaseChance) {
-    return completeTripleDoubleLine(stats) ? 'chase' : null;
+    if (!completeTripleDoubleLine(stats)) return null;
+    stats._tripleChase = 'chase';
+    return 'chase';
   }
   return null;
+}
+
+// 赛后文案：只在真的追成三双的那一场出现
+var TRIPLE_CHASE_NOTES = {
+  chase: '收官阶段把最后一块拼图补上，硬是追成三双',
+  night: '今晚手感、篮板和传球同时在线，一路打成三双',
+};
+
+function getTripleChaseNote(stats) {
+  if (!stats || !stats._tripleChase) return '';
+  var note = TRIPLE_CHASE_NOTES[stats._tripleChase];
+  if (!note) return '';
+  var lifted = stats._tripleChaseLifted ? '（末段补上：' + stats._tripleChaseLifted + '）' : '';
+  return '🔥 ' + note + lifted;
+}
+
+/** 本季追成三双的场次（从最近一场往前数） */
+function getTripleChaseMoments(limit) {
+  var games = (STATE.season && STATE.season.games) || [];
+  var out = [];
+  var max = limit || 3;
+  for (var i = games.length - 1; i >= 0 && out.length < max; i--) {
+    var entry = games[i];
+    var st = entry && entry.stats;
+    if (!st || !st._tripleChase) continue;
+    out.push({
+      index: i,
+      gameNum: (entry.game && entry.game.gameNum) || (i + 1),
+      opponent: entry.game ? entry.game.opponent : '',
+      won: !!(entry.result && entry.result.won),
+      stats: st,
+      note: getTripleChaseNote(st),
+    });
+  }
+  return out;
 }
 
 /** 生成你的球员数据：分钟、球权、出手类型和每项数据分别由对应属性驱动。 */
@@ -8685,7 +8764,9 @@ function renderPlayoffGameBrief(gameEntry, teamA, teamB, isMySeries, roundName, 
   let statsLine = '';
   if (stats) {
     const pct = stats.fga > 0 ? Math.round(stats.fgm / stats.fga * 100) : 0;
-    statsLine = `<div style="font-size:9px;color:var(--text-dim);margin-top:2px;">${stats.pts}分 ${stats.reb}板 ${stats.ast}助 · ${stats.fgm}-${stats.fga} (${pct}%)</div>`;
+    const chaseNote = typeof getTripleChaseNote === 'function' ? getTripleChaseNote(stats) : '';
+    statsLine = `<div style="font-size:9px;color:var(--text-dim);margin-top:2px;">${stats.pts}分 ${stats.reb}板 ${stats.ast}助 · ${stats.fgm}-${stats.fga} (${pct}%)</div>`
+      + (chaseNote ? `<div style="font-size:9px;color:var(--orange);margin-top:1px;">${chaseNote}</div>` : '');
   }
   
   const brief = document.createElement('div');
@@ -9999,6 +10080,7 @@ function renderCareerStatsTab() {
     }
   }
   h += '</div>';
+  h += renderCareerProfilePanel();
   return h;
 }
 
@@ -10855,6 +10937,85 @@ function revokeLoyaltyChemistryBonus() {
   mods.teamChemistry = Math.max(-10, (Number(mods.teamChemistry) || 0) - applied);
   if (typeof refreshPlayerStateStripLive === 'function') refreshPlayerStateStripLive();
   return applied;
+}
+
+// ==================== 生涯档案（只读展示） ====================
+// 事件选项里的「人气 / 教练信任 / 争议…」到底改变了什么？
+// 这张表把每个数值换算成真正生效的东西，避免变成黑盒。
+var CAREER_PROFILE_GUIDE = [
+  { key:'coachTrust',      label:'教练信任', what:'球队地位的主力项：球队攻防、上场时间、被交易/被裁概率、续约意愿；≥10 还会提升老将保养等级' },
+  { key:'lockerRoomTrust', label:'更衣室信任', what:'球队地位 + 球队进攻，降低被交易/被裁概率' },
+  { key:'leadership',      label:'领导力',   what:'直接加球队进攻与防守' },
+  { key:'loyalty',         label:'忠诚',     what:'球队地位 + 降低交易概率 + 提高续约意愿' },
+  { key:'controversy',     label:'争议',     what:'拉低球队地位与公众形象，比赛波动更大，更容易被交易/被裁' },
+  { key:'fame',            label:'人气',     what:'公众形象；≥7 触发全国关注类事件，≥6 解锁媒体线' },
+  { key:'businessValue',   label:'商业价值', what:'公众形象里权重最高的一项，决定合同报价档位' },
+  { key:'mediaTrust',      label:'媒体信任', what:'公众形象，并抵消争议带来的状态波动' },
+  { key:'fanSupport',      label:'球迷支持', what:'公众形象，降低被裁概率、提高续约意愿' },
+  { key:'chinaPopularity', label:'中国人气', what:'公众形象与中国市场线' },
+  { key:'legacyBonus',     label:'传奇声望', what:'直接计入退役时的历史地位评分' },
+];
+
+var CAREER_SEASON_MOD_GUIDE = [
+  { key:'moraleBonus',    label:'士气',     what:'球队进攻 +0.35/点、防守 +0.18/点' },
+  { key:'teamChemistry',  label:'球队默契', what:'球队防守 +0.32/点、进攻 +0.28/点' },
+  { key:'staminaLoad',    label:'体能负荷', what:'球队进攻 −0.34/点、防守 −0.25/点；过高会减少你的上场时间' },
+  { key:'mediaPressure',  label:'媒体压力', what:'球队进攻 −0.16/点' },
+  { key:'injuryRiskBonus', label:'伤病风险', what:'提高/降低受伤判定；≤−2 时老将保养 +1 级' },
+  { key:'formVariance',   label:'状态波动', what:'每场比赛的随机起伏 ±0.45/点' },
+];
+
+function renderCareerProfilePanel() {
+  var c = STATE.career;
+  if (!c) return '';
+  var profile = typeof getCareerProfile === 'function' ? getCareerProfile() : (c.profile || {});
+  var effects = typeof getCareerProfileEffects === 'function' ? getCareerProfileEffects() : null;
+  var h = '<div class="sr-section cs-section">';
+  h += '<div class="sr-section-title">🧬 生涯档案</div>';
+
+  if (effects) {
+    h += '<div class="pf-sum">球队地位 <b>' + fmtProfileValue(effects.teamStanding) + '</b> · 公众形象 <b>' + fmtProfileValue(effects.publicStanding) + '</b></div>';
+    h += '<div class="pf-effect">→ 上场时间 ×' + (Math.round(effects.minutesFactor * 100) / 100) + ' · 球队进攻 ' + fmtProfileValue(effects.gameOffenseBonus) + ' / 防守 ' + fmtProfileValue(effects.gameDefenseBonus) + ' · 被交易 ' + fmtProfileValue(effects.tradeChanceDelta) + ' · 续约 ' + fmtProfileValue(Math.round(effects.renewalChanceBonus * 100)) + '%</div>';
+  }
+
+  var rows = CAREER_PROFILE_GUIDE.filter(function(item) { return (Number(profile[item.key]) || 0) !== 0; });
+  if (!rows.length) {
+    h += '<div class="pf-empty">还没有积累任何档案数值。赛后与休赛期的选择会让它慢慢长起来。</div>';
+  } else {
+    rows.forEach(function(item) {
+      var value = Number(profile[item.key]) || 0;
+      h += '<div class="pf-row"><span class="pf-k">' + item.label + '</span>';
+      h += '<span class="pf-v ' + (value > 0 ? 'up' : 'down') + '">' + fmtProfileValue(value) + '</span>';
+      h += '<span class="pf-w">' + item.what + '</span></div>';
+    });
+  }
+
+  var mods = typeof getNextSeasonMods === 'function' ? getNextSeasonMods() : null;
+  var modRows = mods ? CAREER_SEASON_MOD_GUIDE.filter(function(item) { return (Number(mods[item.key]) || 0) !== 0; }) : [];
+  if (modRows.length) {
+    h += '<div class="pf-sub">本赛季修正</div>';
+    modRows.forEach(function(item) {
+      var value = Number(mods[item.key]) || 0;
+      h += '<div class="pf-row"><span class="pf-k">' + item.label + '</span>';
+      h += '<span class="pf-v ' + (value > 0 ? 'up' : 'down') + '">' + fmtProfileValue(value) + '</span>';
+      h += '<span class="pf-w">' + item.what + '</span></div>';
+    });
+  }
+
+  // 剧情线：你选过的路线现在处在哪个节点，用出现过的注脚原样展示
+  var notes = typeof buildCareerStoryFootnotes === 'function' ? buildCareerStoryFootnotes() : [];
+  if (notes && notes.length) {
+    h += '<div class="pf-sub">已走出的路线</div>';
+    notes.forEach(function(note) { h += '<div class="pf-note">' + note + '</div>'; });
+  }
+
+  h += '</div>';
+  return h;
+}
+
+function fmtProfileValue(value) {
+  var n = Math.round((Number(value) || 0) * 10) / 10;
+  return (n > 0 ? '+' : '') + n;
 }
 
 function getCareerProfileEffects() {

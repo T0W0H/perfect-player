@@ -47,13 +47,16 @@ function matchEnd(source, open) {
 
 const chaseSource = [
   extractVarObject(html, 'TRIPLE_CHASE'),
+  extractVarObject(html, 'TRIPLE_CHASE_NOTES'),
   extractFunction(html, 'getTripleChaseCfg'),
   extractFunction(html, 'isTripleChaseEligible'),
   extractFunction(html, 'isTripleChaseShape'),
   extractFunction(html, 'liftStatToDoubleDigit'),
   extractFunction(html, 'completeTripleDoubleLine'),
   extractFunction(html, 'applyTripleDoubleChase'),
-  'return { TRIPLE_CHASE:TRIPLE_CHASE, getTripleChaseCfg:getTripleChaseCfg, isTripleChaseEligible:isTripleChaseEligible, isTripleChaseShape:isTripleChaseShape, completeTripleDoubleLine:completeTripleDoubleLine, applyTripleDoubleChase:applyTripleDoubleChase };',
+  extractFunction(html, 'getTripleChaseNote'),
+  extractFunction(html, 'getTripleChaseMoments'),
+  'return { STATE:STATE, TRIPLE_CHASE:TRIPLE_CHASE, getTripleChaseCfg:getTripleChaseCfg, isTripleChaseEligible:isTripleChaseEligible, isTripleChaseShape:isTripleChaseShape, completeTripleDoubleLine:completeTripleDoubleLine, applyTripleDoubleChase:applyTripleDoubleChase, getTripleChaseNote:getTripleChaseNote, getTripleChaseMoments:getTripleChaseMoments };',
 ].join('\n');
 
 const ATTRS = ['threePT','MID','FIN','DNK','HAN','PAS','PDEF','IDEF','BLK','REB','ATH','STR','CLU'];
@@ -173,6 +176,52 @@ check('概率表与位置分组完整，缺失位置有兜底', () => {
   });
   const fallback = api.getTripleChaseCfg('XX');
   assert.deepEqual(fallback.keyAttrs, api.TRIPLE_CHASE.keyAttrs.SF, '未知位置回退到 SF');
+});
+
+check('触发后会打上标记，并记下补的是哪一项', () => {
+  api.TRIPLE_CHASE.nightChance.PG = 0;
+  api.TRIPLE_CHASE.chaseChance.PG = 1;
+  const line = makeLine({ pts: 24, reb: 9, ast: 8 });
+  assert.equal(api.applyTripleDoubleChase(line, attrsWith({ PAS: 95, HAN: 95 }), 'PG', rngFixed(0)), 'chase');
+  assert.equal(line._tripleChase, 'chase');
+  assert.equal(line._tripleChaseLifted, '篮板、助攻');
+  api.TRIPLE_CHASE.chaseChance.PG = 0.30;
+});
+
+check('赛后文案：没触发就是空，触发了带 🔥 与补齐说明', () => {
+  const plain = makeLine({ pts: 20, reb: 11, ast: 10 });
+  assert.equal(api.getTripleChaseNote(plain), '');
+  assert.equal(api.getTripleChaseNote(null), '');
+
+  api.TRIPLE_CHASE.nightChance.PG = 1;
+  const night = makeLine({ pts: 6, reb: 4, ast: 5 });
+  api.applyTripleDoubleChase(night, attrsWith({ PAS: 95, HAN: 95 }), 'PG', rngFixed(0));
+  const note = api.getTripleChaseNote(night);
+  assert.ok(note.indexOf('🔥') === 0, note);
+  assert.ok(note.indexOf('三双') >= 0, note);
+  assert.ok(note.indexOf('得分') >= 0 && note.indexOf('篮板') >= 0 && note.indexOf('助攻') >= 0, note);
+  api.TRIPLE_CHASE.nightChance.PG = 0.075;
+});
+
+check('三双时刻榜：只挑出真的追成三双的场次，且从最近往前', () => {
+  api.STATE.season = { games: [
+    { game: { gameNum: 1, opponent: 'BOS' }, result: { won: true }, stats: makeLine({ pts: 30, reb: 12, ast: 11 }) },
+    { game: { gameNum: 2, opponent: 'NYK' }, result: { won: false }, stats: Object.assign(makeLine({ pts: 24, reb: 11, ast: 10 }), { _tripleChase: 'chase', _tripleChaseLifted: '助攻' }) },
+    { game: { gameNum: 3, opponent: 'MIA' }, result: { won: true }, stats: Object.assign(makeLine({ pts: 18, reb: 10, ast: 10 }), { _tripleChase: 'night', _tripleChaseLifted: '得分' }) },
+  ] };
+  const moments = api.getTripleChaseMoments(5);
+  assert.equal(moments.length, 2, '没有触发的比赛不算三双时刻');
+  assert.equal(moments[0].gameNum, 3, '最近的排最前');
+  assert.equal(moments[1].gameNum, 2);
+  assert.equal(moments[0].won, true);
+  assert.ok(moments[0].note.indexOf('🔥') === 0);
+
+  const limited = api.getTripleChaseMoments(1);
+  assert.equal(limited.length, 1);
+  assert.equal(limited[0].gameNum, 3);
+
+  api.STATE.season = null;
+  assert.deepEqual(api.getTripleChaseMoments(), []);
 });
 
 console.log('\n全部通过：' + passed + ' 项');
