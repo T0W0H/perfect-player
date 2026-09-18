@@ -289,14 +289,21 @@
       + summaryItem('publicSummary', '舆论环境', publicScore, '影响比赛波动、续约与自由市场报价')
       + summaryItem('legacySummary', '生涯影响', legacyScore, '影响最终历史分与生涯评价');
     var groupOrder = ['竞技状态','球队关系','舆论环境','生涯影响'];
+    // 标注延续规则：竞技状态每季清零，其余跨季保留
+    var groupTitleMap = {
+      '竞技状态': '竞技状态 · 每季重置',
+      '球队关系': '球队关系 · 跨季累积（换队归零）',
+      '舆论环境': '舆论环境 · 跨季累积',
+      '生涯影响': '生涯影响 · 跨季累积'
+    };
     var groupsHtml = groupOrder.map(function (group) {
-      return '<div class="player-state-group"><div class="player-state-group-title">' + group + '</div>' + values.filter(function (item) {
+      return '<div class="player-state-group"><div class="player-state-group-title">' + (groupTitleMap[group] || group) + '</div>' + values.filter(function (item) {
         return item.group === group;
       }).map(detailItem).join('') + '</div>';
     }).join('');
     return '<div class="player-state-strip" id="player-state-strip" aria-label="球员状态摘要与完整作用">' +
       '<div class="player-state-summary">' + summaryHtml + '</div>' +
-      '<details class="player-state-details"><summary>查看 18 项详细状态与作用</summary><div class="player-state-groups">' + groupsHtml + '</div></details></div>';
+      '<details class="player-state-details"><summary>查看 18 项详细状态与作用（竞技状态每季重置，其余跨季累积）</summary><div class="player-state-groups">' + groupsHtml + '</div></details></div>';
   };
 
   function draftPending() {

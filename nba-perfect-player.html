@@ -2592,6 +2592,7 @@ function createFreshCareer() {
     seasonCount: 0,
     currentAge: 22,
     contract: 4,
+    bankedTrainingPoints: 0,
     seasons: [],
     totalStats: { pts:0, reb:0, ast:0, stl:0, blk:0, tov:0, fgm:0, fga:0, ftm:0, fta:0, threeM:0, threeA:0, games:0, mins:0 },
     playoffStats: { pts:0, reb:0, ast:0, stl:0, blk:0, tov:0, fgm:0, fga:0, ftm:0, fta:0, threeM:0, threeA:0, games:0, mins:0 },
@@ -2670,6 +2671,7 @@ var _helpPages = [
   { title: '赛季', content: '抽签决定我的生涯球队后进入赛季。系统根据我与队内同位置球员的总评比较判定首发或替补。每场比赛可点单场推进，也可点击日历日期批量模拟到当天。比赛数据根据属性和位置动态生成，方差较大，有爆发也有低迷。赛季中可随时点我的数据查看场均表现。' },
   { title: '季后赛', content: '常规赛结束后根据排名决定季后赛或附加赛资格。附加赛在七到十名之间进行，逐场淘汰。季后赛每轮七场四胜，我的系列赛会一场一场模拟，每场生成简报。点击简报可展开查看详细比分、我的数据和全队数据。一路赢下去直到总冠军。' },
   { title: '球员状态', content: '赛季与生涯中的压力、体力、士气、媒体关系、教练信任、球迷支持等状态会直接显示在页面上；事件选择会改变这些数值，并继续沿用原有比赛和生涯判定。' },
+  { title: '球队氛围', content: '<b>氛围分两层。</b><br><br><b>赛季级</b>（球队默契、士气、体能负荷、状态波动、媒体压力、伤病风险）：由赛季日常事件和休赛期事件改变，<b>每个休赛期开始时会清零</b>，只影响下一个赛季，所以得靠每年的选择持续投入。<br><br><b>生涯级</b>（教练信任、更衣室信任、领导力、忠诚、球迷支持、人气、商业价值、媒体信任、争议、传奇声望）：<b>跨赛季永久累积，不会自然衰减</b>，直接决定首发竞争、出场时间、每场攻防加成，以及交易 / 裁员 / 续约概率。<br><br>换队、被裁或自由签约到别的球队后，<b>教练信任与更衣室信任会归零</b>——这两项是针对某支球队的关系，不会跟着你走；其余生涯级数值继续保留。' },
 ];
 
 function showHelpModal() {
@@ -10045,6 +10047,29 @@ function addProfileDelta(key, delta) {
   return p[key];
 }
 
+// ==================== 换队后的球队关系重置 ====================
+// 教练信任 / 更衣室信任是“对某支球队”的关系，不会跟着球员走。
+// 想保留一部分（例如老将威望）把系数改成 0.3 之类即可，0 = 完全清零。
+var TEAM_RELATION_RESET_FACTOR = 0;
+
+function resetTeamRelationsOnTeamChange() {
+  var p = getCareerProfile();
+  var affected = [];
+  [['coachTrust', '教练信任'], ['lockerRoomTrust', '更衣室信任']].forEach(function(pair) {
+    var before = Number(p[pair[0]]) || 0;
+    if (!before) return;
+    var after = Math.floor(before * TEAM_RELATION_RESET_FACTOR);
+    p[pair[0]] = after;
+    affected.push(pair[1] + ' ' + before + '→' + after);
+  });
+  if (affected.length) {
+    if (typeof clearLineupCache === 'function') clearLineupCache();
+    if (STATE.season && STATE.careerTeam && typeof syncUserStarterStatus === 'function') syncUserStarterStatus();
+    refreshPlayerStateStripLive();
+  }
+  return affected;
+}
+
 function addSeasonMod(key, delta, minVal, maxVal) {
   var mods = getNextSeasonMods();
   if (mods[key] == null) mods[key] = 0;
@@ -15172,50 +15197,248 @@ const OFFSEASON_EVENTS = getBranchEventSource().filter(function(ev) {
   return getEventPhases(ev).indexOf('offseason') >= 0;
 });
 
-function calcTrainingPoints() {
-  if (!STATE.season) return 0;
-  var pts = 0;
-  var s = STATE.season;
-  var awards = s.awards || [];
-  var playoffResult = '';
+// ==================== 休赛期训练点数规则表 ====================
+// 每个条件命中即计入对应点数；同一项数据只按最高档计一次，不同条件之间全部累加。
+// 嫌点数太多/太少：改 TRAINING_POINT_SCALE（1 = 原始设定，0.5 = 多档奖励减半），
+// 或直接改下表里的阈值与分值，其余逻辑不用动。
+var TRAINING_POINT_SCALE = 1;
 
-  if (s.playoffBracket && s.playoffBracket.results) {
-    var myResults = s.playoffBracket.results.filter(function(r) { return r.isMySeries; });
-    if (myResults.length > 0) {
-      var last = myResults[myResults.length - 1];
-      var userWon = last.teamA === STATE.careerTeam ? last.aWon : !last.aWon;
-      if (last.round === 0) pts = Math.max(pts, 2);
-      else if (last.round === 1) pts = Math.max(pts, 3);
-      else if (last.round === 2) pts = Math.max(pts, 4);
-      else if (last.round === 3) pts = Math.max(pts, userWon ? 6 : 5);
-    }
+function calcTrainingPointItems() {
+  if (!STATE.season) return [];
+  var s = STATE.season;
+  var items = [];
+
+  function add(id, label, points) {
+    var scaled = Math.max(1, Math.round(points * TRAINING_POINT_SCALE));
+    items.push({ id: id, label: label, points: scaled });
   }
 
-  var pStats = s.playerStats || {};
-  var gp = pStats.games || 1;
-  var avgPts = (pStats.pts || 0) / gp;
-  var avgReb = (pStats.reb || 0) / gp;
-  var avgAst = (pStats.ast || 0) / gp;
-  var personalPts = 0;
-  if (avgPts >= 20) personalPts++;
-  if (avgReb >= 5) personalPts++;
-  if (avgAst >= 5) personalPts++;
+  var p = s.playerStats || {};
+  var gp = p.games || 0;
+  function per(v) { return gp > 0 ? (Number(v) || 0) / gp : 0; }
 
-  var awardLabels = awards.map(function(a) { return typeof a === 'string' ? a : (a.label || ''); });
-  if (awardLabels.indexOf('全明星') >= 0) personalPts++;
-  if (awardLabels.some(function(l) { return l.indexOf('最佳阵容') >= 0; })) personalPts++;
-  if (awardLabels.indexOf('MVP') >= 0) personalPts++;
-  if (awardLabels.indexOf('DPOY') >= 0) personalPts++;
-  if (awardLabels.indexOf('总决赛MVP') >= 0) personalPts++;
-  if (awardLabels.indexOf('最佳新秀') >= 0) personalPts++;
+  // ---- 出场与耐久 ----
+  if (gp >= 75) add('games', '出场 75+ 场', 2);
+  else if (gp >= 60) add('games', '出场 60+ 场', 1);
+  if (per(p.mins) >= 32) add('minutes', '场均 32+ 分钟', 1);
 
-  return Math.max(pts, personalPts) || 1;
+  // ---- 得分 / 篮板 / 助攻（同项取最高档） ----
+  var avgPts = per(p.pts), avgReb = per(p.reb), avgAst = per(p.ast);
+  if (avgPts >= 35) add('scoring', '场均 35+ 分', 4);
+  else if (avgPts >= 30) add('scoring', '场均 30+ 分', 3);
+  else if (avgPts >= 25) add('scoring', '场均 25+ 分', 2);
+  else if (avgPts >= 20) add('scoring', '场均 20+ 分', 1);
+
+  if (avgReb >= 14) add('rebound', '场均 14+ 篮板', 3);
+  else if (avgReb >= 10) add('rebound', '场均 10+ 篮板', 2);
+  else if (avgReb >= 5) add('rebound', '场均 5+ 篮板', 1);
+
+  if (avgAst >= 14) add('assist', '场均 14+ 助攻', 3);
+  else if (avgAst >= 10) add('assist', '场均 10+ 助攻', 2);
+  else if (avgAst >= 5) add('assist', '场均 5+ 助攻', 1);
+
+  // ---- 防守 ----
+  var avgStl = per(p.stl), avgBlk = per(p.blk);
+  if (avgStl >= 2) add('steal', '场均 2+ 抢断', 2);
+  else if (avgStl >= 1) add('steal', '场均 1+ 抢断', 1);
+
+  if (avgBlk >= 2) add('block', '场均 2+ 盖帽', 2);
+  else if (avgBlk >= 1) add('block', '场均 1+ 盖帽', 1);
+
+  if (avgStl + avgBlk >= 3) add('stocks', '场均抢断+盖帽 3+', 1);
+
+  // ---- 效率 ----
+  if ((p.fga || 0) >= 300) {
+    var fgPct = (p.fgm || 0) / p.fga;
+    if (fgPct >= 0.5) add('fg', '总命中率 50%+', 2);
+    else if (fgPct >= 0.45) add('fg', '总命中率 45%+', 1);
+  }
+  if ((p.threeA || 0) >= 120) {
+    var threePct = (p.threeM || 0) / p.threeA;
+    if (threePct >= 0.4) add('three', '三分命中率 40%+', 2);
+    else if (threePct >= 0.38) add('three', '三分命中率 38%+', 1);
+  }
+  if ((p.threeM || 0) >= 200) add('threes', '单季三分命中 200+', 1);
+
+  // ---- 场均两双 / 三双 ----
+  var tenCats = 0;
+  [avgPts, avgReb, avgAst, avgStl, avgBlk].forEach(function(v) { if (v >= 10) tenCats++; });
+  if (tenCats >= 3) add('avgTripleDouble', '场均三双', 3);
+  else if (tenCats >= 2) add('avgDoubleDouble', '场均两双', 1);
+
+  // ---- 单场两双 / 三双 / 四双 / 5x5（常规赛 + 季后赛合并统计） ----
+  var doubleDoubles = 0, tripleDoubles = 0, quadDoubles = 0, fiveByFive = 0;
+  function tallyGame(st) {
+    if (!st) return;
+    var cats = 0;
+    if ((st.pts || 0) >= 10) cats++;
+    if ((st.reb || 0) >= 10) cats++;
+    if ((st.ast || 0) >= 10) cats++;
+    if ((st.stl || 0) >= 10) cats++;
+    if ((st.blk || 0) >= 10) cats++;
+    if (cats >= 4) quadDoubles++;
+    else if (cats === 3) tripleDoubles++;
+    else if (cats === 2) doubleDoubles++;
+
+    var five = 0;
+    if ((st.pts || 0) >= 5) five++;
+    if ((st.reb || 0) >= 5) five++;
+    if ((st.ast || 0) >= 5) five++;
+    if ((st.stl || 0) >= 5) five++;
+    if ((st.blk || 0) >= 5) five++;
+    if (five >= 5) fiveByFive++;
+  }
+  (s.games || []).forEach(function(g) { tallyGame(g && g.stats); });
+  if (s.playoffBracket && s.playoffBracket.results) {
+    s.playoffBracket.results.forEach(function(r) {
+      if (!r || !r.isMySeries || !r.seriesGames) return;
+      r.seriesGames.forEach(function(g) { tallyGame(g && g.myStats); });
+    });
+  }
+
+  if (doubleDoubles >= 40) add('doubleDouble', '两双 40+ 次', 3);
+  else if (doubleDoubles >= 25) add('doubleDouble', '两双 25+ 次', 2);
+  else if (doubleDoubles >= 10) add('doubleDouble', '两双 10+ 次', 1);
+
+  if (tripleDoubles >= 10) add('tripleDouble', '三双 10+ 次', 3);
+  else if (tripleDoubles >= 5) add('tripleDouble', '三双 5+ 次', 2);
+  else if (tripleDoubles >= 1) add('tripleDouble', '三双 1+ 次', 1);
+
+  if (quadDoubles >= 1) add('quadDouble', '四双', 3);
+  if (fiveByFive >= 1) add('fiveByFive', '5x5（单场五项 5+）', 3);
+
+  // ---- 个人荣誉（每项独立计分，可叠加） ----
+  var labels = (s.awards || []).map(function(a) { return typeof a === 'string' ? a : ((a && a.label) || ''); });
+  function hasLabel(text) { return labels.some(function(l) { return String(l).indexOf(text) >= 0; }); }
+
+  if (hasLabel('全明星')) add('allStar', '全明星', 1);
+  if (hasLabel('最佳阵容')) add('allNBA', '最佳阵容', 1);
+  if (hasLabel('最佳防守阵容')) add('allDefense', '最佳防守阵容', 1);
+  if (hasLabel('最佳第六人')) add('sixthman', '最佳第六人', 1);
+  if (hasLabel('进步最快球员')) add('mip', '进步最快球员', 1);
+  if (hasLabel('最佳新秀阵容')) add('allRookie', '最佳新秀阵容', 1);
+  if (hasLabel('年度最佳新秀') || labels.some(function(l) { return String(l) === '最佳新秀'; })) add('roty', '年度最佳新秀', 1);
+  // “👑 总决赛MVP”里也含 MVP 字样，需要排除后才是常规赛 MVP
+  if (labels.some(function(l) { var t = String(l); return t.indexOf('MVP') >= 0 && t.indexOf('总决赛MVP') < 0; })) add('mvp', 'MVP', 1);
+  if (hasLabel('总决赛MVP')) add('fmvp', '总决赛MVP', 1);
+  if (hasLabel('DPOY')) add('dpoy', 'DPOY', 1);
+  if (hasLabel('总冠军')) add('champion', '总冠军', 1);
+
+  // ---- 球队表现（常规赛战绩） ----
+  var teamWins = s.wins || 0;
+  if (teamWins >= 65) add('teamWins', '常规赛 65+ 胜', 3);
+  else if (teamWins >= 58) add('teamWins', '常规赛 58+ 胜', 2);
+  else if (teamWins >= 50) add('teamWins', '常规赛 50+ 胜', 1);
+
+  if (s.standings && s.standings[STATE.careerTeam]) {
+    if (typeof getConferenceSeed === 'function' && getConferenceSeed(STATE.careerTeam) === 1) {
+      add('confTop', '分区常规赛第一', 2);
+    }
+    var bestPct = -1, leagueBest = false;
+    Object.keys(s.standings).forEach(function(team) {
+      var st = s.standings[team] || {};
+      var total = (st.wins || 0) + (st.losses || 0);
+      if (!total) return;
+      var pct = (st.wins || 0) / total;
+      if (pct > bestPct) { bestPct = pct; leagueBest = (team === STATE.careerTeam); }
+    });
+    if (leagueBest) add('leagueTop', '联盟最佳战绩', 3);
+  }
+
+  // ---- 季后赛：球队成绩 + 个人表现 ----
+  var myResults = [];
+  if (s.playoffBracket && s.playoffBracket.results) {
+    myResults = s.playoffBracket.results.filter(function(r) { return r && r.isMySeries; });
+  }
+  var finalsGames = [];
+  var playoffScoringTier = 0;
+  if (myResults.length > 0) {
+    var last = myResults[myResults.length - 1];
+    var userWon = last.teamA === STATE.careerTeam ? last.aWon : !last.aWon;
+    if (last.round === 0) add('playoff', '打进季后赛', 2);
+    else if (last.round === 1) add('playoff', '打进分区半决赛', 3);
+    else if (last.round === 2) add('playoff', '打进分区决赛', 4);
+    else if (last.round === 3) add('playoff', userWon ? '夺冠' : '打进总决赛', userWon ? 6 : 5);
+
+    var sweptRounds = 0, gameSevenWins = 0;
+    myResults.forEach(function(r) {
+      var userWonSeries = r.teamA === STATE.careerTeam ? r.aWon : !r.aWon;
+      var winnerWins = Number(r.winnerWins) || 0;
+      var loserWins = Number(r.loserWins) || 0;
+      if (userWonSeries && winnerWins === 4 && loserWins === 0) sweptRounds++;
+      if (userWonSeries && winnerWins === 4 && loserWins === 3) gameSevenWins++;
+      (r.seriesGames || []).forEach(function(g) {
+        var st = g && g.myStats;
+        if (!st) return;
+        var pts = st.pts || 0;
+        if (pts >= 50) playoffScoringTier = 2;
+        else if (pts >= 40 && playoffScoringTier < 1) playoffScoringTier = 1;
+        if (r.round === 3) finalsGames.push(st);
+      });
+    });
+    if (sweptRounds > 0) add('playoffSweep', '季后赛横扫对手', 1);
+    if (gameSevenWins > 0) add('playoffGame7', '抢七大战胜出', 1);
+    if (playoffScoringTier >= 2) add('playoffBigGame', '季后赛单场 50+ 分', 2);
+    else if (playoffScoringTier === 1) add('playoffBigGame', '季后赛单场 40+ 分', 1);
+  }
+
+  var po = s.playoffStats || {};
+  var poGp = po.games || 0;
+  if (poGp > 0) {
+    var poPpg = (po.pts || 0) / poGp;
+    if (poPpg >= 30) add('playoffScoring', '季后赛场均 30+ 分', 3);
+    else if (poPpg >= 25) add('playoffScoring', '季后赛场均 25+ 分', 2);
+    else if (poPpg >= 20) add('playoffScoring', '季后赛场均 20+ 分', 1);
+  }
+
+  if (finalsGames.length > 0) {
+    var finalsPpg = finalsGames.reduce(function(sum, st) { return sum + (st.pts || 0); }, 0) / finalsGames.length;
+    if (finalsPpg >= 30) add('finalsScoring', '总决赛场均 30+ 分', 2);
+    else if (finalsPpg >= 25) add('finalsScoring', '总决赛场均 25+ 分', 1);
+  }
+
+  if (!items.length) add('baseline', '保底', 1);
+  return items;
+}
+
+function calcTrainingPoints() {
+  return calcTrainingPointItems().reduce(function(sum, item) { return sum + (item.points || 0); }, 0);
+}
+
+// 未花完的训练点数会结转到下一个休赛期：
+// 巅峰期用不上的点数可以存下来，老将阶段用来对冲衰退。
+function getBankedTrainingPoints() {
+  var c = STATE.career;
+  return c ? Math.max(0, Math.floor(Number(c.bankedTrainingPoints) || 0)) : 0;
+}
+
+function getTotalTrainingPoints() {
+  return getBankedTrainingPoints() + calcTrainingPoints();
+}
+
+/** 训练营里的“点数来源”折叠面板 */
+function renderTrainingPointSources(totalPoints) {
+  var items = calcTrainingPointItems();
+  var banked = getBankedTrainingPoints();
+  var rows = '';
+  if (banked > 0) {
+    rows += '<div style="display:flex;justify-content:space-between;gap:8px;padding:2px 0;">' +
+      '<span>往年结余</span><b style="color:var(--orange);">+' + banked + '</b></div>';
+  }
+  rows += items.map(function(item) {
+    return '<div style="display:flex;justify-content:space-between;gap:8px;padding:2px 0;">' +
+      '<span>' + item.label + '</span>' +
+      '<b style="color:var(--orange);">+' + item.points + '</b></div>';
+  }).join('');
+  return '<details style="margin:7px 0 10px;padding:7px 9px;background:var(--bg-card);border:1px solid var(--border-light);border-radius:8px;">' +
+    '<summary style="cursor:pointer;font-size:11px;font-weight:700;color:var(--text-dim);">点数来源：' + items.length + ' 项 / 共 ' + totalPoints + ' 点</summary>' +
+    '<div style="margin-top:6px;font-size:10px;line-height:1.55;color:var(--text-muted);">' + rows + '</div></details>';
 }
 
 function renderTrainingCamp() {
   showScreen('screen-training');
   var c = STATE.career;
-  var tp = calcTrainingPoints();
+  var tp = getTotalTrainingPoints();
   document.getElementById('training-sub').textContent = getCurrentSeasonLabel() + ' 准备就绪 · 年龄 ' + c.currentAge;
 
   if (!STATE._tpPending) STATE._tpPending = {};
@@ -15228,6 +15451,8 @@ function renderTrainingCamp() {
   html += '<div class="tp-points">' + used + ' / ' + tp + '</div>';
   html += '<div class="tp-points-label">训练点数</div>';
   html += '</div>';
+
+  html += renderTrainingPointSources(tp);
 
   html += '<div class="tp-age-info">⏳ <strong>' + c.currentAge + '岁</strong></div>';
   var annualChanges = c.lastAnnualChanges || [];
@@ -15246,7 +15471,7 @@ function renderTrainingCamp() {
   html += '</div>';
 
   document.getElementById('training-content').innerHTML = html;
-  var tpl = calcTrainingPoints();
+  var tpl = getTotalTrainingPoints();
   renderTrainingAttrs(tpl);
 }
 
@@ -15851,41 +16076,9 @@ setTimeout(function() {
 }, 600);
 
 function calcTrainingBreakdown() {
-  var pts = calcTrainingPoints();
-  var parts = [];
-  var s = STATE.season;
-  var awards = s.awards || [];
-  var pStats = s.playerStats || {};
-  var gp = pStats.games || 1;
-  var avgPts = (pStats.pts || 0) / gp;
-  var avgReb = (pStats.reb || 0) / gp;
-  var avgAst = (pStats.ast || 0) / gp;
-
-  if (s.playoffBracket && s.playoffBracket.results) {
-    var myResults = s.playoffBracket.results.filter(function(r) { return r.isMySeries; });
-    if (myResults.length > 0) {
-      var last = myResults[myResults.length - 1];
-      var rn = ['首轮','分区半决赛','分区决赛','总决赛'][last.round] || '';
-      var userWon = last.teamA === STATE.careerTeam ? last.aWon : !last.aWon;
-      if (last.round === 3) parts.push('成绩:' + (userWon ? '🏆冠军+' : '决赛+'));
-      else parts.push('成绩:' + rn + '+');
-    } else parts.push('成绩:常规赛+');
-  } else parts.push('成绩:未进季后赛+');
-
-  if (avgPts >= 20) parts.push('得分20+');
-  if (avgReb >= 5) parts.push('篮板5+');
-  if (avgAst >= 5) parts.push('助攻5+');
-
-  var awardLabels = awards.map(function(a) { return typeof a === 'string' ? a : (a.label || ''); });
-  if (awardLabels.indexOf('全明星') >= 0) parts.push('全明星');
-  if (awardLabels.indexOf('MVP') >= 0) parts.push('MVP');
-  if (awardLabels.indexOf('DPOY') >= 0) parts.push('DPOY');
-  if (awardLabels.indexOf('总决赛MVP') >= 0) parts.push('FMVP');
-  if (awardLabels.indexOf('最佳新秀') >= 0) parts.push('最佳新秀');
-  if (awardLabels.some(function(l) { return l.indexOf('最佳阵容') >= 0; })) parts.push('最佳阵容');
-
-  if (parts.length === 0) parts.push('保底');
-  return parts.join(' + ');
+  return calcTrainingPointItems().map(function(item) {
+    return item.points > 1 ? (item.label + ' +' + item.points) : item.label;
+  }).join(' + ');
 }
 
 function getAgeInfo(age) {
@@ -15976,7 +16169,7 @@ function addTrainingPoint(key) {
   var added = STATE._tpPending[key] || 0;
   var cur = STATE.attrs[key] || 50;
   if (added >= 8) return;
-  var tp = calcTrainingPoints();
+  var tp = getTotalTrainingPoints();
   var used = getPendingTrainingCost(STATE._tpPending);
   var remaining = tp - used;
   var cost = getPointCost(cur + added);
@@ -15992,6 +16185,8 @@ function resetTraining() {
 
 function confirmTraining() {
   var pending = STATE._tpPending || {};
+  var totalPoints = getTotalTrainingPoints();
+  var usedPoints = getPendingTrainingCost(pending);
   for (var k in pending) {
     if (pending.hasOwnProperty(k)) STATE.attrs[k] = (STATE.attrs[k] || 50) + pending[k];
   }
@@ -16004,6 +16199,8 @@ function confirmTraining() {
   saveCurrentSeasonToCareer();
 
   STATE.career.currentAge++;
+  // 没花完的点数结转到下一季
+  STATE.career.bankedTrainingPoints = Math.max(0, totalPoints - usedPoints);
   STATE._tpPending = {};
 
   if (shouldOfferPlayerRetirement()) {
@@ -18046,6 +18243,7 @@ function doTradeUser(destTeam, done) {
   addProfileDelta('fanSupport', -2);
   addProfileDelta('loyalty', -1);
   addSeasonMod('mediaPressure', 1, -10, 10);
+  var relationReset = resetTeamRelationsOnTeamChange();
   setBranchNode('transfer', 'transfer_start');
   if (STATE._leagueChanges) {
     STATE._leagueChanges.trades = STATE._leagueChanges.trades || [];
@@ -18053,7 +18251,7 @@ function doTradeUser(destTeam, done) {
   }
   var oldTn = getTeamName ? getTeamName(old) : old;
   var newTn = getTeamName ? getTeamName(destTeam) : destTeam;
-  var msg = '休赛期的最后一天，交易官宣：' + oldTn + '把' + displayName + '送到' + newTn + '。新闻标题很短：换未来资产。<br><br>效果：球迷支持-2；忠诚-1；媒体压力+1。';
+  var msg = '休赛期的最后一天，交易官宣：' + oldTn + '把' + displayName + '送到' + newTn + '。新闻标题很短：换未来资产。<br><br>效果：球迷支持-2；忠诚-1；媒体压力+1。' + (relationReset.length ? '<br>新球队的关系从零开始：' + relationReset.join('；') + '。' : '');
   recordMobilityHistory('trade', '交易官宣', msg);
   showOffseasonResultModal('交易官宣', msg, function() {
     showMobilityChoiceModal('交易官宣',
@@ -18093,9 +18291,10 @@ function doWaiveUser(done) {
   STATE.career.flags.waived = true;
   addProfileDelta('fanSupport', -1);
   addSeasonMod('mediaPressure', 1, -10, 10);
+  var relationReset = resetTeamRelationsOnTeamChange();
   setBranchNode('transfer', 'transfer_start');
   var oldTn = getTeamName ? getTeamName(old) : old;
-  var msg = oldTn + '宣布裁掉' + displayName + '。管理层没有多解释，新闻稿只有一行：感谢为球队所做的一切。<br><br>效果：球迷支持-1；媒体压力+1；你将进入自由市场。';
+  var msg = oldTn + '宣布裁掉' + displayName + '。管理层没有多解释，新闻稿只有一行：感谢为球队所做的一切。<br><br>效果：球迷支持-1；媒体压力+1；你将进入自由市场。' + (relationReset.length ? '<br>新球队的关系从零开始：' + relationReset.join('；') + '。' : '');
   recordMobilityHistory('waive', '裁员官宣', msg);
   showOffseasonResultModal('裁员官宣', msg, done, diffEventAttributeSnapshot(beforeAttributes));
 }
@@ -18481,6 +18680,11 @@ function showFreeAgencyTeamChangeModal(oldTeam, newTeam, done) {
   html += '<div style="display:flex;align-items:center;justify-content:center;gap:10px;margin-bottom:8px;">' + getTeamLogo(oldTeam, 34) + '<span style="font-size:18px;color:var(--text-dim);">→</span>' + getTeamLogo(newTeam, 34) + '</div>';
   html += '<div style="font-family:var(--font-display);font-size:18px;font-weight:800;color:var(--orange);line-height:1.3;">您选择在' + newName + '开启自己的生涯新篇章！</div>';
   html += '<div style="font-size:12px;color:var(--text-dim);margin-top:6px;line-height:1.55;">离开' + oldName + '之前，这座城市把你的这一站生涯收进档案。</div>';
+  var relationNote = STATE._teamRelationResetNote;
+  delete STATE._teamRelationResetNote;
+  if (relationNote && relationNote.length) {
+    html += '<div style="font-size:12px;color:var(--text-dim);margin-top:6px;line-height:1.55;">新球队的关系从零开始：' + relationNote.join('；') + '。</div>';
+  }
   html += '</div>';
   html += '<div style="padding:0 12px 12px;max-height:58vh;overflow-y:auto;">';
   html += '<div class="sr-section" style="text-align:left;margin-bottom:8px;"><div class="sr-section-title">📊 ' + oldName + '生涯总数据</div>';
@@ -18504,6 +18708,8 @@ function selectContractOption(team, years) {
 
   var oldTeam = STATE.careerTeam;
   var changedTeam = years > 0 && team !== oldTeam;
+  // 自由签约去了别的球队，球队关系同样从零开始
+  if (changedTeam) STATE._teamRelationResetNote = resetTeamRelationsOnTeamChange();
   if (years > 0) {
     STATE.careerTeam = team;
     STATE.career.contract = clampCareerContractYears(years, STATE.career.currentAge);
