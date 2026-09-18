@@ -3771,10 +3771,17 @@ function extractEventChoiceEffectPreview(choice) {
   if (/setBranchNode\(|setBranchState\(|setBranch\b/.test(source)) branchNote = '推进剧情线（改变之后能遇到的事件与可选路线）';
   else if (/flags\./.test(source)) branchNote = '记录为生涯标签（会进入退役评价）';
 
-  if (!changes.length) return branchNote;
+  // 合同条款这类结构化结果：不影响任何数值，但确实是玩家关心的变化
+  var structural = [];
+  if (/\.twoWay\s*=/.test(source)) structural.push('合同身份（双向 / 正式）');
+  if (/\.contractYears\s*=/.test(source)) structural.push('合同年限');
+  else if (/\.contract\s*=/.test(source)) structural.push('合同');
+
+  if (!changes.length && !structural.length) return branchNote;
   var head = risky ? '结果带随机或前置条件，会改变 ' : '';
+  var all = changes.slice(0, 4).concat(structural);
   var tail = branchNote ? ('；并' + branchNote) : '';
-  return head + changes.slice(0, 4).join('、') + tail;
+  return head + all.join('、') + tail;
 }
 
 /** 只报道方向，不报道具体数字：用于有分支 / 随机的选项 */

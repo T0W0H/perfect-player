@@ -125,6 +125,12 @@ check('属性变化也会预告', () => {
   assert.ok(preview.indexOf('三分') >= 0, preview);
 });
 
+check('只有合同变化的选项也会说清（不靠数值也能预告）', () => {
+  const preview = api.extractEventChoiceEffectPreview(choiceFrom('p.twoWay = true; p.contractYears = 2;'));
+  assert.ok(preview.indexOf('合同身份') >= 0, preview);
+  assert.ok(preview.indexOf('合同年限') >= 0, preview);
+});
+
 check('没有 apply 的选项不报错', () => {
   assert.equal(api.extractEventChoiceEffectPreview({ label: 'x' }), '');
   assert.equal(api.extractEventChoiceEffectPreview(null), '');
@@ -143,7 +149,7 @@ check('完全没有信息时也会指向生涯档案，而不是含糊其辞', (
   assert.ok(text.indexOf('将改变后续剧情与人物评价') < 0, '旧的含糊兜底不该再出现');
 });
 
-check('文件里的所有真实选项都能跑通，且绝大多数不再落到空预告', () => {
+check('文件里的所有真实选项都能跑通，且全部能说清改变了什么', () => {
   const results = [];
   const marker = 'apply: function';
   let index = html.indexOf(marker);
@@ -164,7 +170,7 @@ check('文件里的所有真实选项都能跑通，且绝大多数不再落到�
   assert.ok(results.length > 300, '应该扫描到足够多的真实选项：' + results.length);
   results.forEach((preview) => assert.equal(typeof preview, 'string'));
   const informative = results.filter((preview) => preview.length > 0).length;
-  assert.ok(informative / results.length > 0.9, '至少 90% 的选项应能说清改变了什么：' + informative + '/' + results.length);
+  assert.equal(informative, results.length, '每一个真实选项都应能说清改变了什么，还差 ' + (results.length - informative) + ' 个');
   console.log('    （扫描 ' + results.length + ' 个选项，' + informative + ' 个能给出具体影响，占比 ' + Math.round(informative / results.length * 100) + '%）');
 });
 
