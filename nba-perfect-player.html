@@ -2672,6 +2672,7 @@ var _helpPages = [
   { title: '季后赛', content: '常规赛结束后根据排名决定季后赛或附加赛资格。附加赛在七到十名之间进行，逐场淘汰。季后赛每轮七场四胜，我的系列赛会一场一场模拟，每场生成简报。点击简报可展开查看详细比分、我的数据和全队数据。一路赢下去直到总冠军。' },
   { title: '球员状态', content: '赛季与生涯中的压力、体力、士气、媒体关系、教练信任、球迷支持等状态会直接显示在页面上；事件选择会改变这些数值，并继续沿用原有比赛和生涯判定。' },
   { title: '球队氛围', content: '<b>氛围分两层。</b><br><br><b>赛季级</b>（球队默契、士气、体能负荷、状态波动、媒体压力、伤病风险）：由赛季日常事件和休赛期事件改变，<b>每个休赛期开始时会清零</b>，只影响下一个赛季，所以得靠每年的选择持续投入。<br><br><b>生涯级</b>（教练信任、更衣室信任、领导力、忠诚、球迷支持、人气、商业价值、媒体信任、争议、传奇声望）：<b>跨赛季永久累积，不会自然衰减</b>，直接决定首发竞争、出场时间、每场攻防加成，以及交易 / 裁员 / 续约概率。<br><br>换队、被裁或自由签约到别的球队后，<b>教练信任与更衣室信任会归零</b>——这两项是针对某支球队的关系，不会跟着你走；其余生涯级数值继续保留。' },
+  { title: '球队与留守', content: '球队实力来自阵容：首发和主要替补的属性、总评与出场时间共同决定球队的攻防、节奏与深度，<b>队友的交易、退役、老龄化和成长都会直接改变球队强弱</b>，并影响每场比赛的胜负。<br><br>阵容变弱的球队会在自由市场优先挑人，重建期的年轻球员成长也更快，所以战绩通常会在几个赛季后慢慢回来；反过来，主力流失也会真的体现在输球上。<br><br><b>留守奖励</b>：连续效力同一支球队会累积年限，带来：开季球队默契 +1（每满 2 季，上限 +3）、被交易概率每 2 季 −1（上限 −4）、续约率每季 +1%（上限 +8%）、以及每季额外训练点（连续 3 / 6 / 10 季 → +1 / +2 / +3）。<br><br>换队后年限从 0 重新计算，所以自己培养一支球队和不断抱团，收益是不同的。', },
 ];
 
 function showHelpModal() {
@@ -6141,6 +6142,15 @@ function getSimulationPowerBaseline() {
 }
 
 /** 与 82 胜模式一致：轮换实力决定攻防效率，比赛结果由真实生成的比分决定。 */
+// ==================== 球队实力的影响权重 ====================
+// 数值越大，球队阵容强弱（包括队友交易/退役/成长）对比赛结果的影响越明显，
+// 个人能力越难单独扛队；对手防守与阵容深度也一样放大。
+var TEAM_IMPACT = {
+  efficiencyPerEdge: 0.005,   // 每 1 点攻防净差换算成进攻效率（原 0.0034）
+  depthEdge: 0.001,           // 每 1 点阵容深度差（原 0.00075）
+  home: 0.018,                // 主场优势
+};
+
 function simulate82StyleMatchup(teamA, teamB, options) {
   options = options || {};
   var powerA = calcTeamPowerWithPlayer(teamA);
@@ -6149,8 +6159,8 @@ function simulate82StyleMatchup(teamA, teamB, options) {
   var modA = options.neutralState ? { offense:0, defense:0, variance:0 } : getCareerTeamGameModifiers(teamA);
   var modB = options.neutralState ? { offense:0, defense:0, variance:0 } : getCareerTeamGameModifiers(teamB);
   var teamAHome = options.teamAHome !== false;
-  var homeA = teamAHome ? 0.018 : 0;
-  var homeB = teamAHome ? 0 : 0.018;
+  var homeA = teamAHome ? TEAM_IMPACT.home : 0;
+  var homeB = teamAHome ? 0 : TEAM_IMPACT.home;
   var fatigueA = Number(options.fatigueA) || 0;
   var fatigueB = Number(options.fatigueB) || 0;
   var averageAthletic = ((Number(powerA.athletic) || 60) + (Number(powerB.athletic) || 60)) / 2;
@@ -6159,12 +6169,12 @@ function simulate82StyleMatchup(teamA, teamB, options) {
   var pace = Math.max(90, Math.min(109, Math.round(99.4 + (averageAthletic - baseline.athletic) * 0.08 + (averageDepth - baseline.depth) * 0.02 + simGaussian(0, 2.8))));
   var edgeA = ((powerA.offense - baseline.offense) + modA.offense) - ((powerB.defense - baseline.defense) + modB.defense);
   var edgeB = ((powerB.offense - baseline.offense) + modB.offense) - ((powerA.defense - baseline.defense) + modA.defense);
-  var depthEdge = ((Number(powerA.depth) || 60) - (Number(powerB.depth) || 60)) * 0.00075;
+  var depthEdge = ((Number(powerA.depth) || 60) - (Number(powerB.depth) || 60)) * TEAM_IMPACT.depthEdge;
   var seedPts = (Number(options.seedBonus) || 0) * 0.65;
   var injuryPts = options.probMultiplier == null ? 0 : (Number(options.probMultiplier) - 1) * 28;
   // 中立场基准1.154；计入每场一个主队的优势后，联盟均值约115.6分。
-  var efficiencyA = 1.154 + edgeA * 0.0034 + depthEdge + homeA - fatigueA * 0.012 + seedPts / pace + injuryPts / pace;
-  var efficiencyB = 1.154 + edgeB * 0.0034 - depthEdge + homeB - fatigueB * 0.012 - seedPts / pace;
+  var efficiencyA = 1.154 + edgeA * TEAM_IMPACT.efficiencyPerEdge + depthEdge + homeA - fatigueA * 0.012 + seedPts / pace + injuryPts / pace;
+  var efficiencyB = 1.154 + edgeB * TEAM_IMPACT.efficiencyPerEdge - depthEdge + homeB - fatigueB * 0.012 - seedPts / pace;
   efficiencyA = Math.max(0.91, Math.min(1.36, efficiencyA));
   efficiencyB = Math.max(0.91, Math.min(1.36, efficiencyB));
   var varianceA = Math.max(4.6, Math.min(10, 6.4 + modA.variance));
@@ -10009,6 +10019,55 @@ function clampCareerEffect(value, min, max) {
 }
 
 // 剧情属性对稳定系统的统一映射。所有效果均有硬上限，避免剧情数值取代球员能力。
+// ==================== 母队效力年限（留守奖励）====================
+// 留守同一支球队越久，开局默契、续约率、交易保护和训练点收益越高；
+// 年限直接按已完成的赛季记录推导，换队后自动从 0 重新计算，不需要额外存档字段。
+var LOYALTY_BONUS = {
+  chemistryPerTwoSeasons: 1,    // 每满 2 季，开季球队默契 +1
+  chemistryMax: 3,
+  tradeChancePerTwoSeasons: 1,  // 每满 2 季，被交易概率 -1（上限 -4）
+  tradeChanceMax: 4,
+  renewalPerSeason: 0.01,       // 每季续约率 +1%（上限 +8%）
+  renewalMax: 0.08,
+  trainingTiers: [[10, 3], [6, 2], [3, 1]],  // 连续赛季数 → 每季额外训练点
+};
+
+function getTeamTenureSeasons() {
+  var c = STATE.career;
+  if (!c || !c.seasons || !STATE.careerTeam) return 0;
+  var n = 0;
+  for (var i = c.seasons.length - 1; i >= 0; i--) {
+    var record = c.seasons[i];
+    if (record && record.team === STATE.careerTeam) n++;
+    else break;
+  }
+  return n;
+}
+
+function getLoyaltyTrainingBonus() {
+  var seasons = getTeamTenureSeasons();
+  for (var i = 0; i < LOYALTY_BONUS.trainingTiers.length; i++) {
+    if (seasons >= LOYALTY_BONUS.trainingTiers[i][0]) return LOYALTY_BONUS.trainingTiers[i][1];
+  }
+  return 0;
+}
+
+/** 开季把留守年限折算成球队默契（同一个赛季只写一次） */
+function applyLoyaltyChemistryBonus() {
+  var c = STATE.career;
+  if (!c) return 0;
+  var seasonKey = 'S' + (Number(c.seasonCount) || 0);
+  if (c.loyaltyBonusSeason === seasonKey) return 0;
+  c.loyaltyBonusSeason = seasonKey;
+  var seasons = getTeamTenureSeasons();
+  var bonus = Math.min(LOYALTY_BONUS.chemistryMax, Math.floor(seasons / 2) * LOYALTY_BONUS.chemistryPerTwoSeasons);
+  if (bonus <= 0) return 0;
+  var mods = getNextSeasonMods();
+  mods.teamChemistry = Math.min(10, (Number(mods.teamChemistry) || 0) + bonus);
+  if (typeof refreshPlayerStateStripLive === 'function') refreshPlayerStateStripLive();
+  return bonus;
+}
+
 function getCareerProfileEffects() {
   var p = STATE.career ? getCareerProfile() : {};
   var teamStanding = (Number(p.coachTrust) || 0) * 0.45
@@ -10022,17 +10081,21 @@ function getCareerProfileEffects() {
     + (Number(p.fanSupport) || 0) * 0.20
     + (Number(p.chinaPopularity) || 0) * 0.15
     - (Number(p.controversy) || 0) * 0.30;
+  var tenure = typeof getTeamTenureSeasons === 'function' ? getTeamTenureSeasons() : 0;
+  var tenureTradeRelief = Math.min(LOYALTY_BONUS.tradeChanceMax, Math.floor(tenure / 2) * LOYALTY_BONUS.tradeChancePerTwoSeasons);
+  var tenureRenewal = Math.min(LOYALTY_BONUS.renewalMax, tenure * LOYALTY_BONUS.renewalPerSeason);
   return {
     teamStanding: teamStanding,
     publicStanding: publicStanding,
+    loyaltyTenure: tenure,
     lineupBonus: clampCareerEffect(Math.round(teamStanding / 6), -3, 3),
     minutesFactor: clampCareerEffect(1 + teamStanding * 0.006, 0.88, 1.12),
     gameOffenseBonus: clampCareerEffect((Number(p.leadership) || 0) * 0.05 + (Number(p.lockerRoomTrust) || 0) * 0.04, -1.2, 1.5),
     gameDefenseBonus: clampCareerEffect((Number(p.coachTrust) || 0) * 0.04 + (Number(p.leadership) || 0) * 0.04, -1.0, 1.3),
     gameVarianceBonus: clampCareerEffect(((Number(p.controversy) || 0) - (Number(p.mediaTrust) || 0)) * 0.04, -0.8, 0.8),
-    tradeChanceDelta: clampCareerEffect(Math.round((Number(p.controversy) || 0) * 0.25 - (Number(p.coachTrust) || 0) * 0.20 - (Number(p.lockerRoomTrust) || 0) * 0.15 - (Number(p.loyalty) || 0) * 0.12), -7, 7),
+    tradeChanceDelta: clampCareerEffect(Math.round((Number(p.controversy) || 0) * 0.25 - (Number(p.coachTrust) || 0) * 0.20 - (Number(p.lockerRoomTrust) || 0) * 0.15 - (Number(p.loyalty) || 0) * 0.12) - tenureTradeRelief, -7, 7),
     waiveChanceDelta: clampCareerEffect(Math.round((Number(p.controversy) || 0) * 0.25 - (Number(p.coachTrust) || 0) * 0.18 - (Number(p.fanSupport) || 0) * 0.12 - (Number(p.lockerRoomTrust) || 0) * 0.10), -8, 8),
-    renewalChanceBonus: clampCareerEffect((Number(p.coachTrust) || 0) * 0.006 + (Number(p.lockerRoomTrust) || 0) * 0.004 + (Number(p.loyalty) || 0) * 0.004 + (Number(p.fanSupport) || 0) * 0.002 + (Number(p.businessValue) || 0) * 0.001 - (Number(p.controversy) || 0) * 0.006, -0.20, 0.20),
+    renewalChanceBonus: clampCareerEffect((Number(p.coachTrust) || 0) * 0.006 + (Number(p.lockerRoomTrust) || 0) * 0.004 + (Number(p.loyalty) || 0) * 0.004 + (Number(p.fanSupport) || 0) * 0.002 + (Number(p.businessValue) || 0) * 0.001 - (Number(p.controversy) || 0) * 0.006 + tenureRenewal, -0.20, 0.20),
     contractOfferBonus: publicStanding >= 16 ? 2 : (publicStanding >= 7 ? 1 : (publicStanding <= -7 ? -1 : 0)),
     legacyScoreContribution: clampCareerEffect(Math.round(Number(p.legacyBonus) || 0), -15, 20)
   };
@@ -15397,6 +15460,12 @@ function calcTrainingPointItems() {
     else if (finalsPpg >= 25) add('finalsScoring', '总决赛场均 25+ 分', 1);
   }
 
+  // ---- 留守奖励（连续效力同一支球队）----
+  if (typeof getLoyaltyTrainingBonus === 'function' && typeof getTeamTenureSeasons === 'function') {
+    var loyaltyPoints = getLoyaltyTrainingBonus();
+    if (loyaltyPoints > 0) add('loyalty', '母队忠诚（连续 ' + getTeamTenureSeasons() + ' 季）', loyaltyPoints);
+  }
+
   if (!items.length) add('baseline', '保底', 1);
   return items;
 }
@@ -18955,6 +19024,8 @@ function startNewSeason() {
 
 function resetForNewSeason() {
   saveCurrentSeasonToCareer();
+  // 留守奖励：连续效力同一支球队会给开季默契加成
+  if (typeof applyLoyaltyChemistryBonus === 'function') applyLoyaltyChemistryBonus();
   var oldTeam = STATE.careerTeam;
   STATE._careerSaved = false;
   STATE.season = {
@@ -19512,6 +19583,15 @@ function evolveLeague() {
     var roster = NBA2K_DATA[t];
     if (!roster || !roster.length) return;
     STATE._leagueChanges.teamChanges[t] = { before: roster.length, retired: [], rookies: [] };
+    // 重建期判定：近几季战绩偏低的球队，年轻球员成长更快（弱队几个赛季后能重新起来）
+    var teamPct = 0.5;
+    var teamHistory = STATE._teamHistory ? STATE._teamHistory[t] : null;
+    if (teamHistory && teamHistory.length) {
+      var pctSum = 0;
+      teamHistory.forEach(function(h) { pctSum += Number(h) || 0; });
+      teamPct = pctSum / teamHistory.length;
+    }
+    var rebuilding = teamPct < 0.45;
     var newRoster = [];
     roster.forEach(function(p) {
       var age = getLeaguePlayerAge(p);
@@ -19526,6 +19606,7 @@ function evolveLeague() {
       var randFactor = (rngNext() - 0.5) * 1.5;
       var change = ageFactor * 0.5 + volFactor * 0.3 + randFactor * 0.2;
       if (isMvpStar(p) && age <= 26) change += 0.6 + rngNext() * 0.8; // 重点新秀成长加速
+      if (rebuilding && age <= 24) change += 0.4 + rngNext() * 0.7; // 弱队年轻人成长更快
       change = Math.round(change * 2) / 2;
       var newOvr = Math.max(55, Math.min(99, p.ovr + change));
       if (newOvr !== p.ovr) {

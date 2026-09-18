@@ -242,6 +242,7 @@
       { group:'球队关系', key:'teamChemistry', label:'球队默契', value:mods.teamChemistry, goodHigh:true, impact:'直接提升球队进攻与防守效率' },
       { group:'球队关系', key:'coachTrust', label:'教练信任', value:profile.coachTrust, goodHigh:true, impact:'影响首发、时间、交易、裁员与续约' },
       { group:'球队关系', key:'lockerRoomTrust', label:'更衣室信任', value:profile.lockerRoomTrust, goodHigh:true, impact:'提升进攻，降低交易与裁员风险' },
+      { group:'球队关系', key:'tenure', label:'母队年限', value:(typeof getTeamTenureSeasons === 'function' ? getTeamTenureSeasons() : 0), goodHigh:true, raw:true, impact:'连续效力同一支球队的赛季数：提升开季默契与续约率，降低被交易概率，并给额外训练点' },
       { group:'球队关系', key:'leadership', label:'领导力', value:profile.leadership, goodHigh:true, impact:'提升球队攻防并帮助竞争首发' },
       { group:'球队关系', key:'loyalty', label:'忠诚', value:profile.loyalty, goodHigh:true, impact:'降低主动交易风险，提高母队续约率' },
       { group:'舆论环境', key:'mediaPressure', label:'媒体压力', value:mods.mediaPressure, badHigh:true, impact:'降低进攻效率并增加心理压力' },
@@ -301,9 +302,10 @@
         return item.group === group;
       }).map(detailItem).join('') + '</div>';
     }).join('');
+    var detailCountLabel = '查看 ' + values.length + ' 项详细状态与作用（竞技状态每季重置，其余跨季累积）';
     return '<div class="player-state-strip" id="player-state-strip" aria-label="球员状态摘要与完整作用">' +
       '<div class="player-state-summary">' + summaryHtml + '</div>' +
-      '<details class="player-state-details"><summary>查看 18 项详细状态与作用（竞技状态每季重置，其余跨季累积）</summary><div class="player-state-groups">' + groupsHtml + '</div></details></div>';
+      '<details class="player-state-details"><summary>' + detailCountLabel + '</summary><div class="player-state-groups">' + groupsHtml + '</div></details></div>';
   };
 
   function draftPending() {

@@ -35,7 +35,7 @@ const source = extractFunction(html, 'calcTrainingPointItems');
 const scaleMatch = html.match(/var TRAINING_POINT_SCALE\s*=\s*([0-9.]+)\s*;/);
 if (!scaleMatch) throw new Error('找不到 TRAINING_POINT_SCALE');
 const scale = Number(scaleMatch[1]);
-const buildItems = new Function('STATE', 'TRAINING_POINT_SCALE', 'getConferenceSeed', source + '\nreturn calcTrainingPointItems();');
+const buildItems = new Function('STATE', 'TRAINING_POINT_SCALE', 'getConferenceSeed', 'getLoyaltyTrainingBonus', 'getTeamTenureSeasons', source + '\nreturn calcTrainingPointItems();');
 
 // 总点数（当季 + 往年结余）需要连带抽出结转相关的函数
 const totalSource = [
@@ -50,8 +50,8 @@ function totalPointsFor(state) {
   return buildTotal(state, scale);
 }
 
-function itemsFor(season, careerTeam, seedFn) {
-  return buildItems({ season, careerTeam }, scale, seedFn);
+function itemsFor(season, careerTeam, seedFn, loyaltyFn, tenureFn) {
+  return buildItems({ season, careerTeam }, scale, seedFn, loyaltyFn, tenureFn);
 }
 function totalOf(items) {
   return items.reduce((sum, item) => sum + item.points, 0);
@@ -248,6 +248,18 @@ check('缺 myStats 的季后赛（自动模拟）不会报错', () => {
   assert.equal(findItem(items, 'playoffSweep'), null, '输球不算横扫');
   assert.equal(findItem(items, 'playoffScoring').points, 1, '季后赛场均 20 分是最低档');
   assert.equal(totalOf(items), 3);
+});
+
+check('母队忠诚按连续效力年限给额外训练点', () => {
+  const season = { awards: [], playerStats: { games: 1 } };
+  const none = itemsFor(season, 'LAL', undefined, () => 0, () => 2);
+  assert.equal(findItem(none, 'loyalty'), null, '年限不够时不给点');
+  assert.equal(totalOf(none), 1, '只剩保底');
+
+  const some = itemsFor(season, 'LAL', undefined, () => 2, () => 7);
+  assert.equal(findItem(some, 'loyalty').points, 2);
+  assert.ok(findItem(some, 'loyalty').label.indexOf('连续 7 季') >= 0, '标签带上年限');
+  assert.equal(totalOf(some), 2);
 });
 
 console.log('\n全部通过：' + passed + ' 项');
