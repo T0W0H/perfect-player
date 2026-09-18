@@ -77,3 +77,11 @@ node tools/import_external_pool.mjs /tmp/icr3am-app3.html
 页面会在**非 GitHub Pages** 环境自动尝试加载 `assets/data/local/nba2k-data.local.js` 并原地替换联盟名单；文件不存在时静默跳过。
 
 数据来源说明：对方仓库未提供许可证（README 注明仅供学习交流、勿商用），因此本项目只做本地转换与体验，不在公开仓库中分发其数据。
+
+### 位置差异化原则
+
+参考对方的位置校准时，本项目**只做差异化、不做封顶**：
+
+- ✅ 采用：位置得分系数（`POSITION_SPEC.scout`）、抢断位置系数的**软化形式**（能力越强越接近无差别）
+- ❌ 不采用：对方的位置属性上限 `POS_CAP`、数据天花板 `POS_STAT_CAP`、单场动态上限 `DYNAMIC_CAP`
+- 你要的效果是“同一属性下不同位置手感不同”，而不是“某些位置永远摸不到某个上限”；如果想完全回到旧手感，把 `POSITION_SPEC` 两张表全改成 1 即可。
