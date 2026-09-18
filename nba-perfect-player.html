@@ -6760,7 +6760,92 @@ function calcPlayerCreationRating(attrs, pos) {
   return Object.keys(selected).reduce(function(sum, key) { return sum + (parseInt(attrs[key]) || 50) * selected[key]; }, 0);
 }
 
-function getPlayerRotationMinutes(attrs, pos, isPlayoff) {
+// ==================== 上场时间模型 ====================
+// 手动加点有上限，上场时间没有：一场只有 48 分钟，所以 48 是唯一的硬边界。
+// 时间会跟着「比赛激烈程度 / 比赛重要性 / 身体情况」浮动：
+//   - 比分胶着、季后赛轮次越深、再输就回家、抢七 → 加码；
+//   - 比赛打花、带伤打球、体能透支 → 提前下班。
+var MINUTES_MODEL = {
+  max: 48,
+  min: 6,
+  rankTargets: [38, 36, 34, 32, 30, 25, 21, 17, 13, 9],
+  clutchMargin: 6,                // 分差 ≤6：胶着
+  blowoutMargin: 18,              // 分差 ≥18：打花
+  clutchBonus: 3,
+  blowoutPenalty: -4,
+  playoffRoundBonus: [1, 2, 3, 4], // 首轮 / 半决赛 / 分区决赛 / 总决赛
+  playoffBaseBonus: 2,             // 拿不到轮次信息时的兜底
+  eliminationBonus: 3,             // 濒临淘汰（再输就回家）
+  gameSevenBonus: 2,               // 抢七
+  crunchBonus: 1,                  // 常规赛收官卡位战
+  injuredPenalty: -5,
+  fatiguePenalty: -3,
+};
+
+/** 常规赛收官阶段且还在卡位：这种球主力会多打一点 */
+function isRegularSeasonCrunch() {
+  var season = STATE.season;
+  if (!season || season.isPlayoffs) return false;
+  var played = (season.games && season.games.length) || 0;
+  if (played < 66) return false;
+  return getStandingsRank(STATE.careerTeam) > 0 && getStandingsRank(STATE.careerTeam) <= 12;
+}
+
+function getStandingsRank(team) {
+  var standings = STATE.season && STATE.season.standings;
+  if (!standings || !team || !standings[team]) return 0;
+  var rows = Object.keys(standings).map(function(key) {
+    var row = standings[key] || {};
+    return { team:key, diff:(Number(row.wins) || 0) - (Number(row.losses) || 0) };
+  });
+  rows.sort(function(a, b) { return b.diff - a.diff; });
+  for (var i = 0; i < rows.length; i++) if (rows[i].team === team) return i + 1;
+  return 0;
+}
+
+/** 本场时间的浮动值：身体情况 + 重要性 + 激烈程度 */
+function getMinutesSituationalDelta(isPlayoff, gameCtx) {
+  var delta = 0;
+  var ctx = gameCtx || {};
+  var season = STATE.season || {};
+  var events = season.events || {};
+
+  // 1) 身体情况
+  if ((Number(events.injuryGamesLeft) || 0) > 0) delta += MINUTES_MODEL.injuredPenalty;
+  var mods = typeof getNextSeasonMods === 'function' ? getNextSeasonMods() : null;
+  var load = mods ? (Number(mods.staminaLoad) || 0) : 0;
+  if (load >= 2) delta += 1;
+  else if (load <= -2) delta += MINUTES_MODEL.fatiguePenalty;
+  var ps = season.playerStats;
+  var games = (ps && Number(ps.games)) || 0;
+  if (games >= 20) {
+    var avgMins = (Number(ps.mins) || 0) / games;
+    if (avgMins >= 43) delta -= 2;      // 长期超负荷，身体会自己限速
+    else if (avgMins <= 28) delta += 1;
+  }
+
+  // 2) 比赛重要性
+  if (isPlayoff) {
+    var round = parseInt(ctx.round, 10);
+    delta += (round >= 0 && round <= 3) ? MINUTES_MODEL.playoffRoundBonus[round] : MINUTES_MODEL.playoffBaseBonus;
+    var wins = parseInt(ctx.seriesWins, 10) || 0;
+    var losses = parseInt(ctx.seriesLosses, 10) || 0;
+    if (losses === 3 && wins < 3) delta += MINUTES_MODEL.eliminationBonus;
+    else if (wins === 3 && losses === 3) delta += MINUTES_MODEL.gameSevenBonus;
+  } else if (isRegularSeasonCrunch()) {
+    delta += MINUTES_MODEL.crunchBonus;
+  }
+
+  // 3) 比赛激烈程度（用最终分差反推比赛剧本：胶着就多打，打花就提前下班）
+  if (ctx.margin != null && isFinite(Number(ctx.margin))) {
+    var margin = Math.abs(Number(ctx.margin));
+    if (margin <= MINUTES_MODEL.clutchMargin) delta += MINUTES_MODEL.clutchBonus;
+    else if (margin >= MINUTES_MODEL.blowoutMargin) delta += MINUTES_MODEL.blowoutPenalty;
+  }
+  return delta;
+}
+
+function getPlayerRotationMinutes(attrs, pos, isPlayoff, gameCtx) {
   var ovr = typeof calcOVR === 'function' ? calcOVR(attrs, pos) : (STATE.finalOVR || 70);
   var rank = -1;
   var isStarter = false;
@@ -6772,17 +6857,18 @@ function getPlayerRotationMinutes(attrs, pos, isPlayoff) {
   }
   var roleMinutes;
   if (rank >= 0) {
-    roleMinutes = [36,35,34,32,30,25,21,17,13,9][Math.min(9, rank)] || 7;
-    if (isStarter) roleMinutes = Math.max(30, roleMinutes);
-  } else if (ovr >= 90) roleMinutes = 36;
+    roleMinutes = MINUTES_MODEL.rankTargets[Math.min(MINUTES_MODEL.rankTargets.length - 1, rank)] || 7;
+    if (isStarter) roleMinutes = Math.max(32, roleMinutes);
+  } else if (ovr >= 90) roleMinutes = 38;
   else if (ovr >= 82) roleMinutes = 33;
   else if (ovr >= 75) roleMinutes = 28;
   else if (ovr >= 68) roleMinutes = 21;
   else roleMinutes = 13;
   if (STATE.career && STATE.career.flags && STATE.career.flags.startBench) roleMinutes = Math.min(roleMinutes, 24);
-  if (isPlayoff && roleMinutes >= 17) roleMinutes += roleMinutes >= 30 ? 2 : 1;
   roleMinutes *= Math.sqrt(getSeasonUsageBias());
-  return Math.max(6, Math.min(42, Math.round(simGaussian(roleMinutes, 1.35))));
+  roleMinutes += getMinutesSituationalDelta(isPlayoff, gameCtx);
+  // 唯一的硬边界：一场比赛只有 48 分钟
+  return Math.max(MINUTES_MODEL.min, Math.min(MINUTES_MODEL.max, Math.round(simGaussian(roleMinutes, 1.35))));
 }
 
 function syncUserStatsIntoBoxScore(gameResult, stats) {
@@ -6793,6 +6879,13 @@ function syncUserStatsIntoBoxScore(gameResult, stats) {
   if (userIndex < 0) return;
   var otherRows = rows.filter(function(row, index) { return index !== userIndex; });
   var otherPoints = allocateIntegerTotal(Math.max(0, (gameResult.scoreA || 0) - stats.pts), otherRows.map(function(row) { return Math.max(1, row.pts || 0); }));
+  // 你的上场时间不封顶，但全队仍然只有 240 分钟：把队友的时间按比例让出来
+  var otherMinsTotal = otherRows.reduce(function(sum, row) { return sum + (Number(row.mins) || 0); }, 0);
+  var targetOtherMins = Math.max(0, 240 - (Number(stats.mins) || 0));
+  var rebalancedMins = null;
+  if (otherRows.length && otherMinsTotal > 0 && otherMinsTotal !== targetOtherMins) {
+    rebalancedMins = allocateIntegerTotal(targetOtherMins, otherRows.map(function(row) { return Math.max(0.1, Number(row.mins) || 0); }));
+  }
   var cursor = 0;
   rows.forEach(function(row, index) {
     if (index === userIndex) {
@@ -6803,7 +6896,9 @@ function syncUserStatsIntoBoxScore(gameResult, stats) {
       var oldFgPct = Math.max(0.25, Math.min(0.75, (Number(row.fgm) || 0) / oldFga));
       var oldThreeRate = Math.max(0, Math.min(1, (Number(row.threeA) || 0) / oldFga));
       var oldThreePct = row.threeA ? Math.max(0, Math.min(1, (Number(row.threeM) || 0) / row.threeA)) : 0;
+      var otherIndex = cursor;
       row.pts = otherPoints[cursor++];
+      if (rebalancedMins) row.mins = rebalancedMins[otherIndex];
       if (row.pts <= 0) {
         row.fgm = row.fga = row.threeM = row.threeA = 0;
       } else {
@@ -6941,10 +7036,14 @@ function applyTripleDoubleChase(stats, attrs, pos, randomFn) {
 }
 
 /** 生成你的球员数据：分钟、球权、出手类型和每项数据分别由对应属性驱动。 */
-function generatePlayerStatsNew(attrs, gameResult, isPlayoff) {
+function generatePlayerStatsNew(attrs, gameResult, isPlayoff, gameCtx) {
   const pos = STATE.position || 'PG';
   const pace = Number(gameResult && gameResult.pace) || 99.4;
-  const mins = getPlayerRotationMinutes(attrs, pos, isPlayoff);
+  const minsCtx = Object.assign({}, gameCtx || {});
+  if (gameResult && isFinite(Number(gameResult.scoreA)) && isFinite(Number(gameResult.scoreB))) {
+    minsCtx.margin = Math.abs(Number(gameResult.scoreA) - Number(gameResult.scoreB));
+  }
+  const mins = getPlayerRotationMinutes(attrs, pos, isPlayoff, minsCtx);
   const minsFactor = mins / 48;
   const creation = calcPlayerCreationRating(attrs, pos);
   const creation01 = simSkill01(creation);
@@ -8685,7 +8784,7 @@ function simOnePlayoffGame(round, seriesIdx, teamA, teamB, isMySeries, gameNum, 
       const hurtWon = hurtResult.won;
       const hurtNewWinsA = winsA + (hurtWon ? 1 : 0);
       const hurtNewWinsB = winsB + (hurtWon ? 0 : 1);
-      const hurtStats = scaleHurtStats(generatePlayerStatsNew(buildHurtAttrs(STATE.attrs, severity), hurtResult, true), severity);
+      const hurtStats = scaleHurtStats(generatePlayerStatsNew(buildHurtAttrs(STATE.attrs, severity), hurtResult, true, { round: round, seriesWins: winsA, seriesLosses: winsB, gameNum: gameNum }), severity);
       userGameStats.push(hurtStats);
       const poH = STATE.season.playoffStats;
       poH.pts += hurtStats.pts; poH.reb += hurtStats.reb; poH.ast += hurtStats.ast;
@@ -8739,7 +8838,8 @@ function simOnePlayoffGame(round, seriesIdx, teamA, teamB, isMySeries, gameNum, 
   };
   
   if (isMySeries) {
-    const stats = generatePlayerStatsNew(STATE.attrs, gameResult, true);
+    // 把系列赛局势交给时间模型：轮次越深、越接近淘汰，你打得越久
+    const stats = generatePlayerStatsNew(STATE.attrs, gameResult, true, { round: round, seriesWins: winsA, seriesLosses: winsB, gameNum: gameNum });
     gameEntry.myStats = stats;
     userGameStats.push(stats);
     
@@ -10177,8 +10277,10 @@ function showCareerHonors() {
 }
 
 // ==================== 训练营 ====================
-// 属性不再以 99 为硬顶：99 之后仍可继续练，只是训练点成本更高（见 getPointCost）。
-// 这个值只是防数值失控的兜底，不是设计天花板。
+// 玩家手动加点永远只能到 99（ATTR_TRAINING_CAP），不给你一个「练到 120」的卷目标。
+// 99 以上只是后端兜底用的软上界（ATTR_SOFT_CAP），只会由环境 / 状态 / 趋势自动生长，
+// 见 applySoftAttributeOverflow：没有进度条、也没有可刷的路径。
+var ATTR_TRAINING_CAP = 99;
 var ATTR_SOFT_CAP = 120;
 function clampAttrVal(v) {
   return Math.max(25, Math.min(ATTR_SOFT_CAP, Math.round(v)));
@@ -10282,6 +10384,112 @@ function rollAnnualAttributeDelta(age, key, currentValue, maintenanceLevel, rand
   return -Math.max(minimumLoss, loss);
 }
 
+// ==================== 软属性溢出（后端自动，不是加点目标） ====================
+// 手动加点只能到 99；99 以上只会在后端悄悄生长，依据三件事：
+//   趋势 — 你最近两季手动加点最集中的方向
+//   状态 — 上季荣誉的成色（MVP / FMVP / 总冠军 / 最佳阵容 / 数据王…）
+//   环境 — 球队战绩与季后赛走得多远
+// 没有进度条、没有提示、也无法主动去刷：打着打着它自己就长上去了。
+var SOFT_ATTR_OVERFLOW = {
+  backendCap: 120,
+  attrFloor: 99,
+  maxPerSeason: 2,
+  baseChance: 0.16,
+  focusBonus: 0.26,
+  honorBonus: 0.20,
+  teamBonus: 0.16,
+  minAge: 20,
+  maxAge: 38,
+};
+
+function getSoftOverflowFocusWeights() {
+  var history = (STATE.career && STATE.career.trainingHistory) || [];
+  var weights = {};
+  history.slice(-2).forEach(function(entry) {
+    var gains = (entry && entry.gains) || {};
+    Object.keys(gains).forEach(function(key) {
+      var value = Number(gains[key]) || 0;
+      if (value > 0) weights[key] = (weights[key] || 0) + value;
+    });
+  });
+  return weights;
+}
+
+function getLastCompletedSeasonRecord() {
+  var seasons = (STATE.career && STATE.career.seasons) || [];
+  return seasons.length ? seasons[seasons.length - 1] : null;
+}
+
+/** 状态信号 0~1：上季荣誉的成色 */
+function getSoftOverflowHonorSignal() {
+  var last = getLastCompletedSeasonRecord();
+  var honors = (last && last.awards) || [];
+  var weight = 0;
+  honors.forEach(function(item) {
+    var label = (item && item.label) || item || '';
+    if (!label) return;
+    if (label.indexOf('MVP') >= 0 || label.indexOf('总冠军') >= 0) weight = Math.max(weight, 1);
+    else if (label.indexOf('最佳防守球员') >= 0 || label.indexOf('最佳阵容') >= 0) weight = Math.max(weight, 0.8);
+    else if (label.indexOf('王') >= 0) weight = Math.max(weight, 0.7);
+    else if (label.indexOf('全明星') >= 0) weight = Math.max(weight, 0.6);
+    else weight = Math.max(weight, 0.4);
+  });
+  return weight;
+}
+
+/** 环境信号 0~1：球队战绩 + 季后赛走多远 */
+function getSoftOverflowTeamSignal() {
+  var last = getLastCompletedSeasonRecord();
+  if (!last) return 0;
+  var wins = Number(last.wins) || 0;
+  var run = String(last.playoffResult || '');
+  var weight = wins >= 56 ? 0.5 : wins >= 48 ? 0.3 : wins >= 42 ? 0.15 : 0;
+  if (run.indexOf('总冠军') >= 0) weight += 0.5;
+  else if (run.indexOf('总决赛') >= 0 || run.indexOf('分区决赛') >= 0) weight += 0.35;
+  else if (run.indexOf('半决赛') >= 0) weight += 0.2;
+  return Math.min(1, weight);
+}
+
+/** 本季溢出提升的属性列表（同时写进年度变化文案） */
+function applySoftAttributeOverflow(changes) {
+  var added = [];
+  if (!STATE.career) return added;
+  var age = Number(STATE.career.currentAge) || 22;
+  if (age < SOFT_ATTR_OVERFLOW.minAge || age > SOFT_ATTR_OVERFLOW.maxAge) return added;
+
+  var focus = getSoftOverflowFocusWeights();
+  var focusKeys = Object.keys(focus);
+  var focusMax = focusKeys.length ? Math.max.apply(null, focusKeys.map(function(key) { return focus[key]; })) : 0;
+  var honor01 = getSoftOverflowHonorSignal();
+  var team01 = getSoftOverflowTeamSignal();
+
+  var scored = ATTR_KEYS.filter(function(key) {
+    return (Number(STATE.attrs[key]) || 0) >= SOFT_ATTR_OVERFLOW.attrFloor;
+  }).map(function(key) {
+    var focus01 = focusMax > 0 ? Math.min(1, (focus[key] || 0) / focusMax) : 0;
+    return {
+      key: key,
+      focus01: focus01,
+      chance: SOFT_ATTR_OVERFLOW.baseChance
+        + SOFT_ATTR_OVERFLOW.focusBonus * focus01
+        + SOFT_ATTR_OVERFLOW.honorBonus * honor01
+        + SOFT_ATTR_OVERFLOW.teamBonus * team01,
+    };
+  }).sort(function(a, b) { return b.chance - a.chance; });
+
+  for (var i = 0; i < scored.length && added.length < SOFT_ATTR_OVERFLOW.maxPerSeason; i++) {
+    if (Math.random() >= scored[i].chance) continue;
+    var before = Number(STATE.attrs[scored[i].key]) || 0;
+    addAttrDelta(scored[i].key, 1);
+    if ((Number(STATE.attrs[scored[i].key]) || 0) <= before) continue;
+    added.push(scored[i].key);
+    if (changes) {
+      changes.push('+1 ' + attrCN(scored[i].key) + '（' + (scored[i].focus01 > 0.6 ? '一直练的方向' : '状态与环境的积累') + '·突破 99）');
+    }
+  }
+  return added;
+}
+
 function applyAnnualAttributeDrift() {
   var c = STATE.career;
   if (!c) return [];
@@ -10332,6 +10540,9 @@ function applyAnnualAttributeDrift() {
   if (maintenanceLevel > 0 && age >= 31) {
     changes.unshift('老将保养 Lv.' + maintenanceLevel + '：部分衰退有概率减免 1 点，但不会清零高龄回落');
   }
+
+  // 99 以上的软属性：不靠加点，靠趋势 / 状态 / 环境在后端慢慢长
+  applySoftAttributeOverflow(changes);
 
   STATE.finalOVR = calcOVR(STATE.attrs);
   c.annualChangeSeason = seasonKey;
@@ -16468,15 +16679,15 @@ function renderTrainingAttrs(tp) {
     var added = pending[k] || 0;
     var after = cur + added;
     var maxAdd = getMaxAdd(added, tp, cur);
-    var pct = Math.min(100, cur / ATTR_SOFT_CAP * 100);
-    var addPct = after > cur ? Math.min(100, after / ATTR_SOFT_CAP * 100) - pct : 0;
+    var pct = Math.min(100, cur);
+    var addPct = after > cur ? Math.min(100, after) - pct : 0;
     var curGrade = getGrade ? getGrade(cur).letter : '';
     var afterGrade = getGrade ? getGrade(after).letter : '';
     var gradeChanged = curGrade !== afterGrade ? '<span style="color:var(--gold);font-weight:700;">' + curGrade + '→' + afterGrade + '</span>' : curGrade;
     var cost = getPointCost(cur + added);
-    var disabled = added >= 8 || remaining < cost || cur >= ATTR_SOFT_CAP;
+    var disabled = added >= 8 || remaining < cost || cur >= ATTR_TRAINING_CAP;
     var costLabel = cost > 1 ? ' (×' + cost + ')' : '';
-    var btnLabel = remaining >= cost && after < ATTR_SOFT_CAP ? '+' : '';
+    var btnLabel = remaining >= cost && after < ATTR_TRAINING_CAP ? '+' : '';
 
     html += '<div class="tp-row' + (added > 0 ? ' tp-added' : '') + '">';
     html += '<span class="tp-label">' + attrCN(k) + '</span>';
@@ -16496,11 +16707,6 @@ function renderTrainingAttrs(tp) {
 
 function getPointCost(val) {
   // 收益递减：高属性每提升 1 点都应消耗真实预算，而不是只在按钮旁显示倍率。
-  // 99 以上不是禁区，只是价格继续走高。
-  if (val >= 112) return 14;
-  if (val >= 108) return 11;
-  if (val >= 104) return 9;
-  if (val >= 99) return 8;
   if (val >= 98) return 7;
   if (val >= 95) return 5;
   if (val >= 90) return 3;
@@ -16524,7 +16730,7 @@ function getMaxAdd(alreadyAdded, totalPoints, curVal) {
   if (remaining <= 0) return 0;
   var possible = 0;
   var value = curVal + alreadyAdded;
-  while (possible + alreadyAdded < 8 && value < ATTR_SOFT_CAP) {
+  while (possible + alreadyAdded < 8 && value < ATTR_TRAINING_CAP) {
     var cost = getPointCost(value);
     if (remaining < cost) break;
     remaining -= cost;
@@ -16543,7 +16749,7 @@ function addTrainingPoint(key) {
   var used = getPendingTrainingCost(STATE._tpPending);
   var remaining = tp - used;
   var cost = getPointCost(cur + added);
-  if (remaining < cost || cur + added >= ATTR_SOFT_CAP) return;
+  if (remaining < cost || cur + added >= ATTR_TRAINING_CAP) return;
   STATE._tpPending[key] = (STATE._tpPending[key] || 0) + 1;
   renderTrainingCamp();
 }
@@ -16559,6 +16765,19 @@ function confirmTraining() {
   var usedPoints = getPendingTrainingCost(pending);
   for (var k in pending) {
     if (pending.hasOwnProperty(k)) STATE.attrs[k] = (STATE.attrs[k] || 50) + pending[k];
+  }
+  // 记录加点方向：只用于后端软属性溢出的「趋势」判断，不会给玩家任何提示
+  if (STATE.career) {
+    var seasonGains = {};
+    Object.keys(pending).forEach(function(key) {
+      var value = Number(pending[key]) || 0;
+      if (value > 0) seasonGains[key] = value;
+    });
+    if (Object.keys(seasonGains).length) {
+      STATE.career.trainingHistory = (STATE.career.trainingHistory || [])
+        .concat([{ seasonNum: (STATE.career.seasonCount || 0) + 1, gains: seasonGains }])
+        .slice(-2);
+    }
   }
   STATE.finalOVR = calcOVR(STATE.attrs);
 

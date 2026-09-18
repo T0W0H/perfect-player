@@ -47,13 +47,14 @@ function check(label, fn) {
 
 // ── 模拟层：不封顶 ──
 const simSource = [
+  extractVarLine(html, 'ATTR_TRAINING_CAP') + ';',
   extractVarLine(html, 'ATTR_SOFT_CAP') + ';',
   extractFunction(html, 'simSkill01'),
   extractFunction(html, 'interpolateShotCurve'),
   extractFunction(html, 'calcShotPct'),
   extractFunction(html, 'getPointCost'),
   extractFunction(html, 'clampAttrVal'),
-  'return { simSkill01:simSkill01, interpolateShotCurve:interpolateShotCurve, calcShotPct:calcShotPct, getPointCost:getPointCost, clampAttrVal:clampAttrVal, ATTR_SOFT_CAP:ATTR_SOFT_CAP };',
+  'return { simSkill01:simSkill01, interpolateShotCurve:interpolateShotCurve, calcShotPct:calcShotPct, getPointCost:getPointCost, clampAttrVal:clampAttrVal, ATTR_SOFT_CAP:ATTR_SOFT_CAP, ATTR_TRAINING_CAP:ATTR_TRAINING_CAP };',
 ].join('\n');
 
 const SIM_CONFIG = {
@@ -76,17 +77,21 @@ check('99 以下保持原曲线，99 不再饱和', () => {
   assert.ok(sim.simSkill01(120) > sim.simSkill01(99));
 });
 
-check('属性上限放宽到软顶，不再卡在 99', () => {
-  assert.equal(sim.ATTR_SOFT_CAP, 120, '软顶只是兜底，不是设计天花板');
+check('手动加点封顶 99，软上界 120 只留给后端', () => {
+  assert.equal(sim.ATTR_TRAINING_CAP, 99, '玩家手动加点不应该有 120 这种卷目标');
+  assert.equal(sim.ATTR_SOFT_CAP, 120, '后端仍需要一个兜底');
+  // 后端自动生长（软属性溢出）走 clampAttrVal，可以越过 99
   assert.equal(sim.clampAttrVal(105), 105);
   assert.equal(sim.clampAttrVal(999), sim.ATTR_SOFT_CAP);
   assert.equal(sim.clampAttrVal(20), 25);
 });
 
-check('训练点成本在 99 以上继续走高', () => {
-  assert.ok(sim.getPointCost(100) > sim.getPointCost(98));
-  assert.ok(sim.getPointCost(110) > sim.getPointCost(100));
-  assert.ok(sim.getPointCost(118) > sim.getPointCost(110));
+check('训练点成本表回到 99 以内的档位', () => {
+  assert.equal(sim.getPointCost(99), 7);
+  assert.equal(sim.getPointCost(95), 5);
+  assert.equal(sim.getPointCost(90), 3);
+  assert.equal(sim.getPointCost(85), 2);
+  assert.equal(sim.getPointCost(60), 1);
 });
 
 check('命中率曲线超出末端锚点后继续外推', () => {
