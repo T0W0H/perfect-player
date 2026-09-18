@@ -6817,7 +6817,6 @@ function syncUserStatsIntoBoxScore(gameResult, stats) {
   });
 }
 
-/** 生成你的球员数据：分钟、球权、出手类型和每项数据分别由对应属性驱动。 */
 // ==================== 位置专业化系数 ====================
 // 参考 BuildMyNBAPlayer（icr3am.com/nba-game/）公开构建里的位置校准，但只取「相对比例」，
 // 并且**不做任何上限封顶**：
@@ -6846,6 +6845,102 @@ function positionSpecSoft(kind, pos, skill01) {
   return base + (1 - base) * t;
 }
 
+// ==================== 三双追逐（TRIPLE_CHASE） ====================
+// 参考 BuildMyNBAPlayer（icr3am.com/nba-game/）的 TRIPLE_CHASE 思路，但属性分组、判定条件和
+// 概率都按本项目重写（只保留「组织者更容易追三双」这个相对关系，不照抄对方数值），
+// 并且不引入对方这一族的任何封顶：这里只做加法，不做减法。
+//
+// 两层机制：
+//   1) 三双夜：满足资格后，每场有小概率整场直接长成三双；
+//   2) 末段追逐：已经打到 8+8、只差一口气时，按位置概率补齐。
+// 两者都只改变「这场的数据长什么样」，不动属性、成长与长期平衡。
+var TRIPLE_CHASE = {
+  ovrThreshold: 90,      // 总评门槛
+  attrThreshold: 88,     // 位置主项门槛
+  qualifiedAttrs: 2,     // 位置主项里至少几项达标
+  minMinutes: 20,        // 上场时间太少不该出现三双
+  giftCap: 12,           // 赠送值的甜蜜上限（不是数据上限，只是不让这份礼物太离谱）
+  keyAttrs: {
+    PG: ['PAS', 'HAN', 'CLU'],
+    SG: ['PAS', 'HAN', 'REB'],
+    SF: ['REB', 'PAS', 'HAN'],
+    PF: ['REB', 'STR', 'PAS'],
+    C:  ['REB', 'STR', 'PAS'],
+  },
+  nightChance: { PG: 0.020, SG: 0.008, SF: 0.010, PF: 0.008, C: 0.012 },
+  chaseChance: { PG: 0.14, SG: 0.07, SF: 0.08, PF: 0.07, C: 0.09 },
+};
+
+function getTripleChaseCfg(pos) {
+  var key = TRIPLE_CHASE.keyAttrs[pos] ? pos : 'SF';
+  return {
+    keyAttrs: TRIPLE_CHASE.keyAttrs[key],
+    nightChance: Number(TRIPLE_CHASE.nightChance[key]) || 0,
+    chaseChance: Number(TRIPLE_CHASE.chaseChance[key]) || 0,
+  };
+}
+
+function isTripleChaseEligible(attrs, pos, mins, ovr) {
+  if (!attrs) return false;
+  if ((Number(mins) || 0) < TRIPLE_CHASE.minMinutes) return false;
+  if ((Number(ovr) || 0) < TRIPLE_CHASE.ovrThreshold) return false;
+  var qualified = getTripleChaseCfg(pos).keyAttrs.filter(function(k) {
+    return (parseInt(attrs[k], 10) || 0) >= TRIPLE_CHASE.attrThreshold;
+  }).length;
+  return qualified >= TRIPLE_CHASE.qualifiedAttrs;
+}
+
+// 只差一口气：得分到位，篮板助攻都已 ≥ 8 且至少有一项还没上双
+function isTripleChaseShape(stats) {
+  if (!stats) return false;
+  var pts = Number(stats.pts) || 0, reb = Number(stats.reb) || 0, ast = Number(stats.ast) || 0;
+  if (pts < 10) return false;
+  if (reb >= 10 && ast >= 10) return false;
+  return reb >= 8 && ast >= 8;
+}
+
+function liftStatToDoubleDigit(stats, key) {
+  var value = Number(stats[key]) || 0;
+  if (value >= 10) return false;
+  stats[key] = Math.min(TRIPLE_CHASE.giftCap, Math.max(10, value + 2));
+  return true;
+}
+
+// 补齐成三双；得分不足 10 时用两分球补，保证 fgm/fga 仍然自洽
+function completeTripleDoubleLine(stats) {
+  if (!stats) return false;
+  var changed = false;
+  var pts = Number(stats.pts) || 0;
+  if (pts < 10) {
+    var addTwo = Math.ceil((10 - pts) / 2);
+    stats.pts = pts + addTwo * 2;
+    stats.fgm = (Number(stats.fgm) || 0) + addTwo;
+    stats.fga = (Number(stats.fga) || 0) + addTwo;
+    changed = true;
+  }
+  if (liftStatToDoubleDigit(stats, 'reb')) changed = true;
+  if (liftStatToDoubleDigit(stats, 'ast')) changed = true;
+  return changed;
+}
+
+/** 返回 'night' / 'chase' 表示触发了哪一层，未触发返回 null */
+function applyTripleDoubleChase(stats, attrs, pos, randomFn) {
+  if (!stats || !attrs) return null;
+  var rng = typeof randomFn === 'function' ? randomFn : Math.random;
+  var ovr = typeof calcOVR === 'function' ? calcOVR(attrs, pos) : (STATE.finalOVR || 0);
+  if (!isTripleChaseEligible(attrs, pos, stats.mins, ovr)) return null;
+  var cfg = getTripleChaseCfg(pos);
+  if (rng() < cfg.nightChance) {
+    // 手感、篮板和传球同时在线的一晚：就算前两节平平，也让它长成三双
+    return completeTripleDoubleLine(stats) ? 'night' : null;
+  }
+  if (isTripleChaseShape(stats) && rng() < cfg.chaseChance) {
+    return completeTripleDoubleLine(stats) ? 'chase' : null;
+  }
+  return null;
+}
+
+/** 生成你的球员数据：分钟、球权、出手类型和每项数据分别由对应属性驱动。 */
 function generatePlayerStatsNew(attrs, gameResult, isPlayoff) {
   const pos = STATE.position || 'PG';
   const pace = Number(gameResult && gameResult.pace) || 99.4;
@@ -6924,6 +7019,8 @@ function generatePlayerStatsNew(attrs, gameResult, isPlayoff) {
   const blk = samplePoisson(blk36 * mins / 36 * paceScale);
   const tov = samplePoisson(tov36 * mins / 36 * paceScale);
   const stats = { pts, reb, ast, stl, blk, tov, fgm, fga, ftm, fta, threeM, threeA, mins };
+  // 三双追逐：只加不减，而且只在本就有好数据时才有意义
+  applyTripleDoubleChase(stats, attrs, pos, Math.random);
   syncUserStatsIntoBoxScore(gameResult, stats);
   return stats;
 }
