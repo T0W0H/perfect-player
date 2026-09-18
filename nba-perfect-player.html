@@ -6103,14 +6103,42 @@ function showAwardsScreen() {
 
 // ★ 实验性：82 场赛果点阵图
 function renderTripleChaseBlock(limit) {
-  var moments = getTripleChaseMoments(limit || 3);
+  return renderSeasonHighlights(limit);
+}
+
+/** 本季高光：三双时刻 + 第六人代表作（从最近一场往前） */
+function getSeasonHighlightMoments(limit) {
+  var games = (STATE.season && STATE.season.games) || [];
+  var out = [];
+  var max = limit || 3;
+  for (var i = games.length - 1; i >= 0 && out.length < max; i--) {
+    var entry = games[i];
+    var st = entry && entry.stats;
+    if (!st) continue;
+    var note = getTripleChaseNote(st) || getSixthManGameNote(st);
+    if (!note) continue;
+    out.push({
+      index: i,
+      gameNum: (entry.game && entry.game.gameNum) || (i + 1),
+      opponent: entry.game ? entry.game.opponent : '',
+      won: !!(entry.result && entry.result.won),
+      stats: st,
+      note: note,
+    });
+  }
+  return out;
+}
+
+function renderSeasonHighlights(limit) {
+  var moments = getSeasonHighlightMoments(limit || 3);
   if (!moments.length) return '';
-  var h = '<div class="chase-block"><div class="chase-title">三双时刻</div>';
+  var h = '<div class="chase-block"><div class="chase-title">本季高光</div>';
   moments.forEach(function(m) {
     var st = m.stats;
     var opp = m.opponent ? getTeamName(m.opponent) : '';
+    var pm = st.plusMinus == null ? '' : ' · ' + fmtPlusMinus(st.plusMinus);
     h += '<div class="chase-row"><span class="chase-g">G' + m.gameNum + '</span>';
-    h += '<span class="chase-line">' + (m.won ? '胜' : '负') + ' ' + opp + ' · <b>' + st.pts + '分 ' + st.reb + '板 ' + st.ast + '助</b></span></div>';
+    h += '<span class="chase-line">' + (m.won ? '胜' : '负') + ' ' + opp + ' · <b>' + st.pts + '分 ' + st.reb + '板 ' + st.ast + '助' + pm + '</b></span></div>';
     h += '<div class="chase-note">' + m.note + '</div>';
   });
   h += '</div>';
@@ -6134,7 +6162,7 @@ function renderDotGrid() {
   var dotsHtml = '';
   if (rec.games && rec.games.length > 0) {
     rec.games.forEach(function(g, i) {
-      var tdTag = (g.stats && g.stats._tripleChase) ? ' · 🔥 三双' : '';
+      var tdTag = (g.stats && g.stats._tripleChase) ? ' · 🔥 三双' : ((g.stats && typeof getSixthManGameNote === 'function' && getSixthManGameNote(g.stats)) ? ' · 🔥 高光' : '');
       if (g.suspended) {
         dotsHtml += '<span class="dot dot-x" title="G' + (i + 1) + ': 禁赛">✕</span>';
       } else {
@@ -6146,7 +6174,7 @@ function renderDotGrid() {
 
   // 清空旧内容
   html('season-controls').innerHTML = '';
-  html('gamecast-area').innerHTML = renderTripleChaseBlock();
+  html('gamecast-area').innerHTML = renderSeasonHighlights();
   html('game-list').innerHTML = '';
 
   html('season-header').innerHTML =
@@ -6859,6 +6887,7 @@ function calcPlayerCreationRating(attrs, pos) {
 var MINUTES_MODEL = {
   max: 48,
   min: 6,
+  sigma: 1.35,                    // 首发的单场浮动（小）
   rankTargets: [38, 36, 34, 32, 30, 25, 21, 17, 13, 9],
   clutchMargin: 6,                // 分差 ≤6：胶着
   blowoutMargin: 18,              // 分差 ≥18：打花
@@ -6871,6 +6900,18 @@ var MINUTES_MODEL = {
   crunchBonus: 1,                  // 常规赛收官卡位战
   injuredPenalty: -5,
   fatiguePenalty: -3,
+};
+
+// 第六人专属：时间更浮动（15 分钟到 40 分钟都可能），而且打的是对方替补
+var SIXTH_MAN_MINUTES = {
+  base: 24,             // 角色基准
+  sigma: 3.6,           // 浮动明显大于首发，但不会每场都飘到 40 分钟
+  clutchBonus: 5,       // 胶着时更愿意留状态好的第六人收尾
+  blowoutBonus: 3,      // 打花反而有垃圾时间可以打（首发已经下班）
+  easeMinutes: 18,      // ≤18 分钟：基本全程对位对方替补
+  easeFullMinutes: 34,  // ≥34 分钟：对位难度回到正常首发水平
+  easeMax: 0.018,       // 对位优势换算成「出手难度减免」
+  plusMinusEase: 2,     // 打对方替补带来的正负值红利
 };
 
 /** 常规赛收官阶段且还在卡位：这种球主力会多打一点 */
@@ -6894,8 +6935,8 @@ function getStandingsRank(team) {
   return 0;
 }
 
-/** 本场时间的浮动值：身体情况 + 重要性 + 激烈程度 */
-function getMinutesSituationalDelta(isPlayoff, gameCtx) {
+/** 本场时间的浮动值：身体情况 + 重要性 + 激烈程度（第六人用另一套激烈程度） */
+function getMinutesSituationalDelta(isPlayoff, gameCtx, isSixthMan) {
   var delta = 0;
   var ctx = gameCtx || {};
   var season = STATE.season || {};
@@ -6927,11 +6968,12 @@ function getMinutesSituationalDelta(isPlayoff, gameCtx) {
     delta += MINUTES_MODEL.crunchBonus;
   }
 
-  // 3) 比赛激烈程度（用最终分差反推比赛剧本：胶着就多打，打花就提前下班）
+  // 3) 比赛激烈程度（用最终分差反推比赛剧本）
+  //    首发打花就提前下班；第六人反而等到垃圾时间，胶着时又会被留着收尾
   if (ctx.margin != null && isFinite(Number(ctx.margin))) {
     var margin = Math.abs(Number(ctx.margin));
-    if (margin <= MINUTES_MODEL.clutchMargin) delta += MINUTES_MODEL.clutchBonus;
-    else if (margin >= MINUTES_MODEL.blowoutMargin) delta += MINUTES_MODEL.blowoutPenalty;
+    if (margin <= MINUTES_MODEL.clutchMargin) delta += isSixthMan ? SIXTH_MAN_MINUTES.clutchBonus : MINUTES_MODEL.clutchBonus;
+    else if (margin >= MINUTES_MODEL.blowoutMargin) delta += isSixthMan ? SIXTH_MAN_MINUTES.blowoutBonus : MINUTES_MODEL.blowoutPenalty;
   }
   return delta;
 }
@@ -6955,11 +6997,13 @@ function getPlayerRotationMinutes(attrs, pos, isPlayoff, gameCtx) {
   else if (ovr >= 75) roleMinutes = 28;
   else if (ovr >= 68) roleMinutes = 21;
   else roleMinutes = 13;
-  if (STATE.career && STATE.career.flags && STATE.career.flags.startBench) roleMinutes = Math.min(roleMinutes, 24);
+  if (STATE.career && STATE.career.flags && STATE.career.flags.startBench) roleMinutes = Math.min(roleMinutes, SIXTH_MAN_MINUTES.base);
   roleMinutes *= Math.sqrt(getSeasonUsageBias());
-  roleMinutes += getMinutesSituationalDelta(isPlayoff, gameCtx);
+  var isSixthMan = !!(STATE.career && STATE.career.flags && STATE.career.flags.startBench);
+  roleMinutes += getMinutesSituationalDelta(isPlayoff, gameCtx, isSixthMan);
   // 唯一的硬边界：一场比赛只有 48 分钟
-  return Math.max(MINUTES_MODEL.min, Math.min(MINUTES_MODEL.max, Math.round(simGaussian(roleMinutes, 1.35))));
+  var sigma = isSixthMan ? SIXTH_MAN_MINUTES.sigma : MINUTES_MODEL.sigma;
+  return Math.max(MINUTES_MODEL.min, Math.min(MINUTES_MODEL.max, Math.round(simGaussian(roleMinutes, sigma))));
 }
 
 function syncUserStatsIntoBoxScore(gameResult, stats) {
@@ -6980,7 +7024,7 @@ function syncUserStatsIntoBoxScore(gameResult, stats) {
   var cursor = 0;
   rows.forEach(function(row, index) {
     if (index === userIndex) {
-      Object.assign(row, { pts:stats.pts, reb:stats.reb, ast:stats.ast, stl:stats.stl, blk:stats.blk, tov:stats.tov, fgm:stats.fgm, fga:stats.fga, ftm:stats.ftm, fta:stats.fta, threeM:stats.threeM, threeA:stats.threeA, mins:stats.mins });
+      Object.assign(row, { pts:stats.pts, reb:stats.reb, ast:stats.ast, stl:stats.stl, blk:stats.blk, tov:stats.tov, fgm:stats.fgm, fga:stats.fga, ftm:stats.ftm, fta:stats.fta, threeM:stats.threeM, threeA:stats.threeA, mins:stats.mins, plusMinus:stats.plusMinus || 0 });
     } else {
       var oldPoints = Math.max(1, Number(row.pts) || 0);
       var oldFga = Math.max(1, Number(row.fga) || 0);
@@ -7169,6 +7213,48 @@ function getTripleChaseMoments(limit) {
 }
 
 /** 生成你的球员数据：分钟、球权、出手类型和每项数据分别由对应属性驱动。 */
+/** 生成你的球员数据：分钟、球权、出手类型和每项数据分别由对应属性驱动。 */
+
+// ==================== 第六人的对位红利与正负值 ====================
+// 出场时间越短，说明越是在打对方替补：出手压力更小、正负值也更好看。
+function getBenchMatchupEase(mins, isSixthMan) {
+  if (!isSixthMan) return 0;
+  var m = Number(mins) || 0;
+  var span = Math.max(1, SIXTH_MAN_MINUTES.easeFullMinutes - SIXTH_MAN_MINUTES.easeMinutes);
+  var t = (SIXTH_MAN_MINUTES.easeFullMinutes - m) / span;
+  return Math.max(0, Math.min(1, t));
+}
+
+/** 本场正负值：球队分差 × 在场时间占比 + 个人产出 + 打替补的对位红利 */
+function computeGamePlusMinus(stats, gameResult, benchEase) {
+  if (!stats) return 0;
+  var margin = (Number(gameResult && gameResult.scoreA) || 0) - (Number(gameResult && gameResult.scoreB) || 0);
+  var mins = Math.max(1, Number(stats.mins) || 0);
+  var share = Math.min(1, mins / 48);
+  var production = (Number(stats.pts) || 0)
+    + (Number(stats.reb) || 0) * 1.2
+    + (Number(stats.ast) || 0) * 1.5
+    + (Number(stats.stl) || 0) * 2
+    + (Number(stats.blk) || 0) * 2
+    - (Number(stats.tov) || 0) * 1.5;
+  var personal = (production / mins - 0.62) * mins * 0.16;
+  var easeBonus = (Number(benchEase) || 0) * SIXTH_MAN_MINUTES.plusMinusEase;
+  return Math.round(margin * share + personal + easeBonus + simGaussian(0, 2.2));
+}
+
+/** 第六人专属赛后文案：只在从替补席打出来的标志性比赛出现 */
+function getSixthManGameNote(stats) {
+  if (!stats || !stats._sixthMan) return '';
+  var pts = Number(stats.pts) || 0;
+  var mins = Number(stats.mins) || 0;
+  var pm = Number(stats.plusMinus) || 0;
+  if (pts >= 30) return '🔥 从替补席上砍下 ' + pts + ' 分，把比赛带走了';
+  if (pm >= 20) return '🔥 只打了 ' + mins + ' 分钟，正负值 +' + pm;
+  if (mins >= 38) return '🔥 名义上是第六人，这场打了 ' + mins + ' 分钟';
+  if (pts >= 20 && pm >= 15) return '🔥 替补登场 ' + pts + ' 分，正负值 +' + pm;
+  return '';
+}
+
 function generatePlayerStatsNew(attrs, gameResult, isPlayoff, gameCtx) {
   const pos = STATE.position || 'PG';
   const pace = Number(gameResult && gameResult.pace) || 99.4;
@@ -7177,6 +7263,8 @@ function generatePlayerStatsNew(attrs, gameResult, isPlayoff, gameCtx) {
     minsCtx.margin = Math.abs(Number(gameResult.scoreA) - Number(gameResult.scoreB));
   }
   const mins = getPlayerRotationMinutes(attrs, pos, isPlayoff, minsCtx);
+  const isSixthMan = !!(STATE.career && STATE.career.flags && STATE.career.flags.startBench);
+  const benchEase = getBenchMatchupEase(mins, isSixthMan);
   const minsFactor = mins / 48;
   const creation = calcPlayerCreationRating(attrs, pos);
   const creation01 = simSkill01(creation);
@@ -7191,7 +7279,8 @@ function generatePlayerStatsNew(attrs, gameResult, isPlayoff, gameCtx) {
 
   const baseline = getSimulationPowerBaseline();
   const opponentDefense = gameResult && gameResult.teamB && gameResult.teamB.power ? Number(gameResult.teamB.power.defense) : baseline.defense;
-  const defensePressure = Math.max(-0.035, Math.min(0.045, (opponentDefense - baseline.defense) * 0.003));
+  const defensePressure = Math.max(-0.035, Math.min(0.045, (opponentDefense - baseline.defense) * 0.003))
+    - benchEase * SIXTH_MAN_MINUTES.easeMax; // 打对方替补时出手更轻松
   const teamFGA = pace * 0.896;
   const scoringAverage = ((parseInt(attrs.threePT)||50) + (parseInt(attrs.MID)||50) + (parseInt(attrs.FIN)||50)) / 3;
   const aggression = Math.max(0.78, Math.min(1.12, 0.96 + (scoringAverage - 70) * 0.004));
@@ -7253,6 +7342,8 @@ function generatePlayerStatsNew(attrs, gameResult, isPlayoff, gameCtx) {
   const stats = { pts, reb, ast, stl, blk, tov, fgm, fga, ftm, fta, threeM, threeA, mins };
   // 三双追逐：只加不减，而且只在本就有好数据时才有意义
   applyTripleDoubleChase(stats, attrs, pos, Math.random);
+  stats.plusMinus = computeGamePlusMinus(stats, gameResult, benchEase);
+  if (isSixthMan) stats._sixthMan = true;
   syncUserStatsIntoBoxScore(gameResult, stats);
   return stats;
 }
@@ -9627,6 +9718,7 @@ function showSeasonResults() {
   const threePct = avg.threeA > 0 ? (avg.threeM / avg.threeA * 100).toFixed(1) : '—';
   const ftPct = avg.fta > 0 ? (avg.ftm / avg.fta * 100).toFixed(1) : '—';
   const ovrGrade = getOvrGrade(STATE.finalOVR);
+  const plusMinusLine = '场均正负值 ' + fmtPlusMinus(getPlusMinusTotals(STATE.season.games).avg) + ' · ';
 
   // 季后赛信息
   const bracket = STATE.season.playoffBracket;
@@ -9746,7 +9838,7 @@ function showSeasonResults() {
           <div class="sr-stat"><span class="sr-stat-val">${avg.blk}</span><span class="sr-stat-lbl">盖帽</span></div>
           <div class="sr-stat"><span class="sr-stat-val">${avg.tov}</span><span class="sr-stat-lbl">失误</span></div>
         </div>
-        <div class="sr-pct-line">投篮 ${avg.fgm}-${avg.fga} (${pct}%) · 三分 ${avg.threeM}-${avg.threeA} (${threePct}%) · 罚球 ${avg.ftm}-${avg.fta} (${ftPct}%)</div>
+        <div class="sr-pct-line">${plusMinusLine}投篮 ${avg.fgm}-${avg.fga} (${pct}%) · 三分 ${avg.threeM}-${avg.threeA} (${threePct}%) · 罚球 ${avg.ftm}-${avg.fta} (${ftPct}%)</div>
       </div>
 
       ${playoffStatsHtml}
@@ -9798,6 +9890,7 @@ function renderMyCard(isFinal) {
   const threePct = avg.threeA > 0 ? (avg.threeM / avg.threeA * 100).toFixed(1) : '—';
   const ftPct = avg.fta > 0 ? (avg.ftm / avg.fta * 100).toFixed(1) : '—';
   const gamesPlayed = STATE.season.schedule?.filter(g => g.simulated).length || 0;
+  const plusMinusLine = '场均正负值 ' + fmtPlusMinus(getPlusMinusTotals(STATE.season.games).avg) + ' · ';
   
   // 属性紧凑网格
   let attrHtml = '';
@@ -9915,7 +10008,7 @@ function renderMyCard(isFinal) {
           <div class="mc-stat"><span class="mc-stat-val">${avg.blk}</span><span class="mc-stat-lbl">盖帽</span></div>
           <div class="mc-stat"><span class="mc-stat-val">${avg.tov}</span><span class="mc-stat-lbl">失误</span></div>
         </div>
-        <div class="mc-pct-line">投篮 ${avg.fgm}-${avg.fga} (${pct}%) · 三分 ${avg.threeM}-${avg.threeA} (${threePct}%) · 罚球 ${avg.ftm}-${avg.fta} (${ftPct}%)</div>
+        <div class="mc-pct-line">${plusMinusLine}投篮 ${avg.fgm}-${avg.fga} (${pct}%) · 三分 ${avg.threeM}-${avg.threeA} (${threePct}%) · 罚球 ${avg.ftm}-${avg.fta} (${ftPct}%)</div>
       </div>
       
       <div class="mc-section">
@@ -9974,6 +10067,32 @@ function showCareerStats(tab) {
 
 function exitToHomepage() {
   initGame();
+}
+
+// ==================== 正负值 ====================
+// 逐场才有，赛季 / 生涯场均都在展示时现场算，避免在每个累加点都加字段
+function getPlusMinusTotals(games) {
+  var total = 0, count = 0;
+  (games || []).forEach(function(g) {
+    var st = g && g.stats;
+    if (!st || st.plusMinus == null) return;
+    total += Number(st.plusMinus) || 0;
+    count++;
+  });
+  return { total: total, games: count, avg: count ? Math.round(total / count * 10) / 10 : null };
+}
+
+function fmtPlusMinus(value) {
+  if (value == null || !isFinite(Number(value))) return '—';
+  var n = Math.round(Number(value) * 10) / 10;
+  return (n > 0 ? '+' : '') + n;
+}
+
+function getCareerPlusMinusAverage() {
+  var ts = (STATE.career && STATE.career.totalStats) || {};
+  var games = Number(ts.plusMinusGames) || 0;
+  if (!games) return null;
+  return Math.round((Number(ts.plusMinusTotal) || 0) / games * 10) / 10;
 }
 
 function getSeasonAverages(s) {
@@ -10106,7 +10225,10 @@ function renderCareerStatsTab() {
     h += '<div class="cs-stat"><div class="cs-stat-val">' + s.val + '</div><div class="cs-stat-lbl">' + s.lbl + '</div></div>';
   });
   h += '</div>';
-  h += '<div class="sr-pct-line">命中率 ' + avg.fgm + '-' + avg.fga + ' (' + pct + '%) · 三分 ' + avg.threeM + '-' + avg.threeA + ' (' + threePct + '%) · 罚球 ' + avg.ftm + '-' + avg.fta + ' (' + ftPct + '%)</div>';
+  h += '<div class="sr-pct-line">' + (function() {
+    var careerPm = fmtPlusMinus(getCareerPlusMinusAverage());
+    return careerPm === '—' ? '' : '场均正负值 ' + careerPm + ' · ';
+  })() + '命中率 ' + avg.fgm + '-' + avg.fga + ' (' + pct + '%) · 三分 ' + avg.threeM + '-' + avg.threeA + ' (' + threePct + '%) · 罚球 ' + avg.ftm + '-' + avg.fta + ' (' + ftPct + '%)</div>';
   h += '</div>';
   h += renderCareerTrendSection();
   h += '<div class="sr-section cs-section">';
@@ -10286,6 +10408,11 @@ function saveCurrentSeasonToCareer() {
     ts[f] = (ts[f] || 0) + (sp[f] || 0);
   });
   ts.games = (ts.games || 0) + (sp.games || 0);
+  // 正负值逐场才有，聚合理里没有，所以单独累加
+  var pmTotals = getPlusMinusTotals(STATE.season.games);
+  seasonRecord.playerStats.plusMinusAvg = pmTotals.avg;
+  ts.plusMinusTotal = (ts.plusMinusTotal || 0) + pmTotals.total;
+  ts.plusMinusGames = (ts.plusMinusGames || 0) + pmTotals.games;
 
   var po = STATE.season.playoffStats || {};
   var cpo = c.playoffStats;

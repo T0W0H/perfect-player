@@ -141,4 +141,149 @@ check('每季重置回首发，需要重新选择（一次点击，不会被动�
   assert.ok(body.indexOf('delete STATE.career.flags.startBench') >= 0, '新赛季应回到默认首发');
 });
 
+console.log('\n第六人的比赛表现');
+
+const simSource = [
+  extractVarObject(html, 'MINUTES_MODEL'),
+  extractVarObject(html, 'SIXTH_MAN_MINUTES'),
+  extractFunction(html, 'getStandingsRank'),
+  extractFunction(html, 'isRegularSeasonCrunch'),
+  extractFunction(html, 'getMinutesSituationalDelta'),
+  extractFunction(html, 'getPlayerRotationMinutes'),
+  extractFunction(html, 'getBenchMatchupEase'),
+  extractFunction(html, 'computeGamePlusMinus'),
+  extractFunction(html, 'getSixthManGameNote'),
+  'return { MINUTES_MODEL:MINUTES_MODEL, SIXTH_MAN_MINUTES:SIXTH_MAN_MINUTES, getMinutesSituationalDelta:getMinutesSituationalDelta, getPlayerRotationMinutes:getPlayerRotationMinutes, getBenchMatchupEase:getBenchMatchupEase, computeGamePlusMinus:computeGamePlusMinus, getSixthManGameNote:getSixthManGameNote };',
+].join('\n');
+
+function matchEndOf(source, open) {
+  let depth = 0;
+  for (let i = open; i < source.length; i++) {
+    if (source[i] === '{') depth++;
+    else if (source[i] === '}') { depth--; if (depth === 0) return i + 1; }
+  }
+  throw new Error('括号不配对');
+}
+
+function extractVarObject(source, name) {
+  const start = source.indexOf('var ' + name + ' = {');
+  if (start < 0) throw new Error('找不到对象: ' + name);
+  const open = source.indexOf('{', start);
+  return source.slice(start, open) + source.slice(open, matchEndOf(source, open)) + ';';
+}
+
+function makeSimApi(opts) {
+  const options = opts || {};
+  const STATE = {
+    position: 'SG', finalOVR: 92, careerTeam: 'TST',
+    career: { currentAge: 26, flags: options.bench ? { startBench: true } : {} },
+    season: { games: [], playerStats: { games: 40, mins: 40 * 26 }, standings: {}, events: {} },
+  };
+  const lineup = {
+    isUserStarter: !options.bench,
+    allPlayers: [{ _isUser: true, ovr: 92 }, { ovr: 80 }, { ovr: 78 }, { ovr: 76 }, { ovr: 74 }],
+  };
+  const attrs = {};
+  ['threePT','MID','FIN','DNK','HAN','PAS','PDEF','IDEF','BLK','REB','ATH','STR','CLU'].forEach((k) => { attrs[k] = 92; });
+  const api = new Function('STATE', 'calcOVR', 'calcTeamLineup', 'getSeasonUsageBias', 'simGaussian', 'getNextSeasonMods', simSource)(
+    STATE,
+    () => 92,
+    () => lineup,
+    () => 1,
+    (mean, dev) => (options.seedRandom ? mean + dev * (Math.random() * 2 - 1) * 1.6 : mean),
+    () => ({ staminaLoad: 0 })
+  );
+  return { api, STATE };
+}
+
+check('第六人的出场时间浮动明显更大', () => {
+  const starter = makeSimApi({ seedRandom: true }).api;
+  const sixth = makeSimApi({ bench: true, seedRandom: true }).api;
+  assert.ok(sixth.SIXTH_MAN_MINUTES.sigma > starter.MINUTES_MODEL.sigma * 2, '第六人的单场浮动应该明显更大');
+
+  const sample = (api) => {
+    const values = [];
+    for (let i = 0; i < 400; i++) values.push(api.getPlayerRotationMinutes({}, 'SG', false, { margin: 12 }));
+    return values;
+  };
+  const benchMins = sample(sixth);
+  const starterMins = sample(starter);
+  const range = (list) => Math.max.apply(null, list) - Math.min.apply(null, list);
+  assert.ok(range(benchMins) >= 6, '第六人的时间跨度应该比首发大：' + range(benchMins));
+  assert.ok(range(benchMins) > range(starterMins), '应该大于首发：' + range(benchMins) + ' vs ' + range(starterMins));
+  assert.ok(Math.max.apply(null, benchMins) <= 48, '仍然不能超过 48 分钟');
+});
+
+check('关键战（总决赛 / 生死局）可以打到 40 分钟以上', () => {
+  const api = makeSimApi({ bench: true, seedRandom: true }).api;
+  let maxMins = 0;
+  for (let i = 0; i < 600; i++) {
+    const m = api.getPlayerRotationMinutes({}, 'SG', true, { round: 3, seriesWins: 3, seriesLosses: 3, margin: 2 });
+    maxMins = Math.max(maxMins, m);
+  }
+  assert.ok(maxMins >= 40, '第六人应该有机会打到 40 分钟以上：' + maxMins);
+  assert.ok(maxMins <= 48, '但不会超过 48：' + maxMins);
+});
+
+check('打花时第六人反而有垃圾时间（与首发相反）', () => {
+  const api = makeSimApi({ bench: true }).api;
+  const blowout = api.getMinutesSituationalDelta(false, { margin: 26 }, true);
+  const clutch = api.getMinutesSituationalDelta(false, { margin: 2 }, true);
+  assert.ok(blowout > 0, '打花对第六人应该是加分：' + blowout);
+  assert.ok(clutch > blowout, '胶着时教练更愿意留他收尾：' + clutch + ' vs ' + blowout);
+});
+
+check('对位红利用得是「打得越少、对手越弱」', () => {
+  const api = makeSimApi({ bench: true }).api;
+  assert.equal(api.getBenchMatchupEase(24, false), 0, '首发没有对位红利');
+  assert.equal(api.getBenchMatchupEase(api.SIXTH_MAN_MINUTES.easeMinutes, true), 1, '≤18 分钟时对位优势拉满');
+  assert.equal(api.getBenchMatchupEase(api.SIXTH_MAN_MINUTES.easeFullMinutes, true), 0, '打到 34 分钟就回到正常难度');
+  const mid = api.getBenchMatchupEase(26, true);
+  assert.ok(mid > 0 && mid < 1, '中间值应该在 0~1 之间：' + mid);
+  assert.ok(api.getBenchMatchupEase(20, true) > api.getBenchMatchupEase(30, true), '时间越短优势越大');
+});
+
+check('正负值：赢球 + 高产出就高，替补还有额外红利', () => {
+  const api = makeSimApi({ bench: true }).api;
+  const goodLine = { pts: 28, reb: 5, ast: 4, stl: 1, blk: 0, tov: 2, mins: 24 };
+  const win = { scoreA: 116, scoreB: 104 };
+  const loss = { scoreA: 104, scoreB: 116 };
+  const good = api.computeGamePlusMinus(goodLine, win, 0.6);
+  const bad = api.computeGamePlusMinus({ pts: 4, reb: 1, ast: 1, stl: 0, blk: 0, tov: 3, mins: 22 }, loss, 0.7);
+  assert.ok(good > 5, '好的夜晚正负值应该明显为正：' + good);
+  assert.ok(bad < 0, '差的夜晚应该是负的：' + bad);
+  assert.ok(good > api.computeGamePlusMinus(goodLine, win, 0), '打替补应该比正常对位更好看');
+});
+
+check('第六人赛后文案：只在标志性比赛出现', () => {
+  const api = makeSimApi({ bench: true }).api;
+  assert.equal(api.getSixthManGameNote({ pts: 25, mins: 26, plusMinus: 8 }), '', '普通比赛不该有文案');
+  assert.ok(api.getSixthManGameNote({ pts: 32, mins: 27, plusMinus: 12, _sixthMan: true }).indexOf('从替补席上砍下 32 分') >= 0);
+  assert.ok(api.getSixthManGameNote({ pts: 14, mins: 20, plusMinus: 23, _sixthMan: true }).indexOf('正负值 +23') > 0);
+  assert.ok(api.getSixthManGameNote({ pts: 18, mins: 41, plusMinus: 6, _sixthMan: true }).indexOf('打了 41 分钟') > 0);
+  assert.ok(api.getSixthManGameNote({ pts: 22, mins: 25, plusMinus: 17, _sixthMan: true }).indexOf('替补登场 22 分') >= 0);
+  assert.equal(api.getSixthManGameNote({ pts: 40, mins: 30, plusMinus: 20 }), '', '不是第六人就不出这套文案');
+});
+
+check('本季高光同时收录三双与第六人代表作', () => {
+  const src = [
+    extractVarObject(html, 'TRIPLE_CHASE_NOTES'),
+    extractFunction(html, 'getTripleChaseNote'),
+    extractFunction(html, 'getSixthManGameNote'),
+    extractFunction(html, 'getSeasonHighlightMoments'),
+    'return { getSeasonHighlightMoments:getSeasonHighlightMoments };',
+  ].join('\n');
+  const STATE = { season: { games: [
+    { game: { gameNum: 1, opponent: 'BOS' }, result: { won: true }, stats: { pts: 20, mins: 30, plusMinus: 4 } },
+    { game: { gameNum: 2, opponent: 'MIA' }, result: { won: true }, stats: { pts: 33, mins: 27, plusMinus: 11, _sixthMan: true } },
+    { game: { gameNum: 3, opponent: 'NYK' }, result: { won: false }, stats: { pts: 21, reb: 11, ast: 10, mins: 34, plusMinus: -3, _tripleChase: 'chase', _tripleChaseLifted: '助攻' } },
+  ] } };
+  const run = new Function('STATE', src)(STATE);
+  const moments = run.getSeasonHighlightMoments(5);
+  assert.equal(moments.length, 2, '普通比赛不算高光');
+  assert.equal(moments[0].gameNum, 3, '最近一场排最前');
+  assert.ok(moments[0].note.indexOf('三双') >= 0);
+  assert.ok(moments[1].note.indexOf('替补席') >= 0, moments[1].note);
+});
+
 console.log('\n全部通过：' + passed + ' 项');
