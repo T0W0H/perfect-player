@@ -5080,6 +5080,27 @@ function getPlayerAwardStreak(player, act) {
   return player && player._awardStreak ? (player._awardStreak[act] || 0) : 0;
 }
 
+// 连庄衰减：不再“连两届直接踢出候选”，而是按连庄次数平滑降权。
+// 旧做法（>=2 就 continue）会让玩家看到“明明是联盟第一却没进候选”的怪现象。
+var AWARD_STREAK_MUL = {
+  tickets: [1, 0.6, 0.35, 0.2, 0.12], // MVP 票数倍率
+  score:   [1, 0.75, 0.45, 0.3, 0.2], // DPOY 等评分倍率
+};
+
+function awardStreakMul(kind, streak) {
+  var arr = AWARD_STREAK_MUL[kind] || AWARD_STREAK_MUL.score;
+  var i = Math.max(0, Math.min(arr.length - 1, Math.floor(Number(streak) || 0)));
+  return arr[i];
+}
+
+/** 按倍率缩放票数：小数部分按概率进位，倍率够低时会自然退出竞争 */
+function scaleTickets(base, mul) {
+  var exact = Math.max(0, (Number(base) || 0) * (Number(mul) || 0));
+  var whole = Math.floor(exact);
+  if (whole < exact && Math.random() < (exact - whole)) whole++;
+  return whole;
+}
+
 function addPlayerAwardStreak(player, act) {
   player._awardStreak = player._awardStreak || {};
   player._awardStreak[act] = (player._awardStreak[act] || 0) + 1;
@@ -5156,8 +5177,8 @@ function pickLeagueDPOY() {
     for (var _dp = 0; _dp < roster.length; _dp++) {
       var p = roster[_dp];
       if (p._isUser) continue;
-      if (getPlayerAwardStreak(p, 'dpoy') >= 2) continue;
-      var score = ((parseInt(p.PDEF) || 60) * 0.5) + ((parseInt(p.IDEF) || 60) * 0.5) + ((parseInt(p.BLK) || 50) * 0.8) + ((parseInt(p.ovr) || 70) * 0.3);
+      var score = (((parseInt(p.PDEF) || 60) * 0.5) + ((parseInt(p.IDEF) || 60) * 0.5) + ((parseInt(p.BLK) || 50) * 0.8) + ((parseInt(p.ovr) || 70) * 0.3))
+        * awardStreakMul('score', getPlayerAwardStreak(p, 'dpoy')); // 连庄平滑降权
       if (score > bestScore) { bestScore = score; best = p; bestTeam = NBA2K_TEAMS[_dt]; }
     }
   }
@@ -5175,8 +5196,7 @@ function computeSixthManRank(avgPts) {
     for (var _b2 = 0; _b2 < bench2b.length; _b2++) {
       var pb = bench2b[_b2];
       if (pb._isUser) continue;
-      if (getPlayerAwardStreak(pb, 'sixthman') >= 2) continue;
-      var o2 = parseInt(pb.ovr) || 0;
+      var o2 = (parseInt(pb.ovr) || 0) - Math.min(6, getPlayerAwardStreak(pb, 'sixthman') * 3); // 连庄降权
       if (o2 > best2) best2 = o2;
     }
     if (best2 > 0) scores.push(best2);
@@ -5347,22 +5367,24 @@ function calcSeasonAwards() {
       var mOvr = parseInt(mp.ovr) || 0;
       if (mOvr < 92 && !isMvpStar(mp)) continue;
       if (isMvpStar(mp) && mOvr < 88) continue; // 热门新秀也要具备 MVP 候选资格
-      if (getPlayerAwardStreak(mp, 'mvp') >= 2) continue; // 连续两届 MVP，下赛季大幅降权
+      var mvpStreakMul = awardStreakMul('tickets', getPlayerAwardStreak(mp, 'mvp')); // 连庄平滑降票
       var mAge = getLeaguePlayerAge(mp);
       if (mAge >= 31) continue; // 31 岁及以上视为老将，不再参与 MVP
       var ticketCount = rankM <= 3 ? 2 : 1;
       var starStart2 = getMvpStarAllNbaStart(mp);
       if (starStart2 != null && seasonYear >= starStart2 && seasonYear <= starStart2 + 3) ticketCount += 4; // 热门新秀专属 MVP 窗口：+4
+      ticketCount = scaleTickets(ticketCount, mvpStreakMul);
+      if (ticketCount <= 0) continue;
       var cand = { cname: mp.cname || mp.name, playerName: mp.name, team: mTeam, isUser: false, rank: rankM };
       for (var _mc = 0; _mc < ticketCount; _mc++) mvpTickets.push(cand);
     }
   }
   if ((parseInt(STATE.finalOVR) || 0) >= 92) {
     var userObjM = getUserPlayerObject();
-    var userMvpBlocked = userObjM && getPlayerAwardStreak(userObjM, 'mvp') >= 2;
-    if (!userMvpBlocked) {
-      var userRankM = getLeagueRank(STATE.careerTeam);
-      var userTickets = userRankM <= 3 ? 2 : 1;
+    var userMvpMul = awardStreakMul('tickets', userObjM ? getPlayerAwardStreak(userObjM, 'mvp') : 0);
+    var userRankM = getLeagueRank(STATE.careerTeam);
+    var userTickets = scaleTickets(userRankM <= 3 ? 2 : 1, userMvpMul);
+    if (userTickets > 0) {
       var userCand = { cname: getHupuDisplayName(), playerName: '', team: STATE.careerTeam, isUser: true, rank: userRankM };
       for (var _um = 0; _um < userTickets; _um++) mvpTickets.push(userCand);
     }
@@ -5390,7 +5412,8 @@ function calcSeasonAwards() {
   var userObjD = getUserPlayerObject();
   var userDpoyStreak = userObjD ? getPlayerAwardStreak(userObjD, 'dpoy') : 0;
   var dpoyProtected = userDpoyStreak >= 2;
-  var dpoyThreshold = dpoyProtected ? 4.2 : 3.55;
+  // 连庄平滑提门槛：每连庄一届 +0.35，上限 +1.0（原来“连两届直接抬到 4.2”太生硬）
+  var dpoyThreshold = 3.55 + Math.min(1.0, userDpoyStreak * 0.35);
   var dpoyUserRank = '未进入前五';
   if (dpoyProtected) {
     dpoyUserRank = '🥈 第二名';
@@ -5600,8 +5623,7 @@ function calcSeasonAwards() {
       for (var _bi2 = 0; _bi2 < bench2.length; _bi2++) {
         var p2 = bench2[_bi2];
         if (p2._isUser) continue;
-        if (getPlayerAwardStreak(p2, 'sixthman') >= 2) continue; // 连续两届第六人，下赛季大幅降权
-        var ovr2 = parseInt(p2.ovr) || 0;
+        var ovr2 = (parseInt(p2.ovr) || 0) - Math.min(6, getPlayerAwardStreak(p2, 'sixthman') * 3); // 连庄降权
         if (ovr2 > bestBOvr) { bestBOvr = ovr2; bestBench = p2; bestBTeam = topT2; }
       }
     }
@@ -6350,6 +6372,42 @@ function getSimulationPowerBaseline() {
 }
 
 /** 与 82 胜模式一致：轮换实力决定攻防效率，比赛结果由真实生成的比分决定。 */
+// ==================== 队友竞争对个人数据的影响 ====================
+// 抱团是要付出代价的：同位置队友越强、队里球星越多，你的球权越少，
+// 得分与出手相应下降（不需要玩家做任何额外操作，自动结算）。
+var TEAMMATE_USAGE_RULES = {
+  perOvrDiff: 0.006,   // 与同位置最强队友每差 1 点总评 ±0.6%
+  maxBonus: 0.06,      // 球队核心最多 +6%
+  maxPenalty: 0.18,    // 同位置明显强于你时最多 -18%
+  perExtraStar: 0.03,  // 队里每多一个 88+ 球星再 -3%
+  maxStarPenalty: 0.08,
+  starOvr: 88,
+};
+
+function getTeammateUsageFactor(pos) {
+  var roster = (typeof NBA2K_DATA !== 'undefined' && NBA2K_DATA && STATE.careerTeam) ? (NBA2K_DATA[STATE.careerTeam] || []) : [];
+  if (!roster.length) return 1;
+  var myOvr = Number(STATE.finalOVR) || 70;
+  var bestSamePos = 0, stars = 0;
+  roster.forEach(function(p) {
+    if (!p || p._isUser) return;
+    var ovr = parseInt(p.ovr) || 0;
+    if (ovr >= TEAMMATE_USAGE_RULES.starOvr) stars++;
+    var pPos = (p.pos || 'SF').split('/')[0].trim();
+    if (pPos === pos && ovr > bestSamePos) bestSamePos = ovr;
+  });
+  var factor = 1;
+  if (bestSamePos > 0) {
+    var diff = myOvr - bestSamePos;
+    factor += Math.max(-TEAMMATE_USAGE_RULES.maxPenalty,
+      Math.min(TEAMMATE_USAGE_RULES.maxBonus, diff * TEAMMATE_USAGE_RULES.perOvrDiff));
+  }
+  if (stars > 1) {
+    factor -= Math.min(TEAMMATE_USAGE_RULES.maxStarPenalty, (stars - 1) * TEAMMATE_USAGE_RULES.perExtraStar);
+  }
+  return Math.max(0.72, Math.min(1.08, factor));
+}
+
 // ==================== 球队实力的影响权重 ====================
 // 数值越大，球队阵容强弱（包括队友交易/退役/成长）对比赛结果的影响越明显，
 // 个人能力越难单独扛队；对手防守与阵容深度也一样放大。
@@ -6724,6 +6782,8 @@ function generatePlayerStatsNew(attrs, gameResult, isPlayoff) {
   const posUsage = { PG:.005, SG:.012, SF:.004, PF:-.004, C:-.002 };
   let usage = 0.10 + Math.pow(creation01, 1.24) * 0.27 + (posUsage[pos] || 0);
   if (isPlayoff && creation01 > 0.62) usage += 0.01;
+  // 队友竞争：抱团 / 同位置有强人时球权下降
+  usage *= (typeof getTeammateUsageFactor === 'function' ? getTeammateUsageFactor(pos) : 1);
   usage = Math.max(0.10, Math.min(0.39, usage));
 
   const baseline = getSimulationPowerBaseline();
