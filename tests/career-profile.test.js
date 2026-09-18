@@ -52,8 +52,10 @@ const source = [
   extractVarArray(html, 'CAREER_PROFILE_GUIDE'),
   extractVarArray(html, 'CAREER_SEASON_MOD_GUIDE'),
   extractFunction(html, 'fmtProfileValue'),
+  extractFunction(html, 'renderCareerProfileBody'),
   extractFunction(html, 'renderCareerProfilePanel'),
-  'return { CAREER_PROFILE_GUIDE:CAREER_PROFILE_GUIDE, CAREER_SEASON_MOD_GUIDE:CAREER_SEASON_MOD_GUIDE, fmtProfileValue:fmtProfileValue, renderCareerProfilePanel:renderCareerProfilePanel };',
+  extractFunction(html, 'renderSeasonProfileDetails'),
+  'return { CAREER_PROFILE_GUIDE:CAREER_PROFILE_GUIDE, CAREER_SEASON_MOD_GUIDE:CAREER_SEASON_MOD_GUIDE, fmtProfileValue:fmtProfileValue, renderCareerProfileBody:renderCareerProfileBody, renderCareerProfilePanel:renderCareerProfilePanel, renderSeasonProfileDetails:renderSeasonProfileDetails };',
 ].join('\n');
 
 let passed = 0;
@@ -63,9 +65,9 @@ function check(label, fn) {
   console.log('  ✓ ' + label);
 }
 
-function render(options) {
+function makeApi(options) {
   const opts = options || {};
-  const STATE = { career: { profile: opts.profile || {} } };
+  const STATE = opts.state || { career: { profile: opts.profile || {} } };
   const profile = Object.assign({ fame:0, businessValue:0, mediaTrust:0, controversy:0, chinaPopularity:0, loyalty:0, leadership:0, coachTrust:0, lockerRoomTrust:0, fanSupport:0, legacyBonus:0 }, opts.profile || {});
   const effects = opts.effects === undefined ? {
     teamStanding: 12.4, publicStanding: 8.2,
@@ -78,7 +80,11 @@ function render(options) {
     () => effects,
     () => (opts.mods || {}),
     () => (opts.notes || [])
-  ).renderCareerProfilePanel();
+  );
+}
+
+function render(options) {
+  return makeApi(options).renderCareerProfilePanel();
 }
 
 console.log('生涯档案面板测试');
@@ -149,6 +155,20 @@ check('说明文案覆盖了事件里会出现的每一个数值', () => {
   ['moraleBonus','teamChemistry','staminaLoad','mediaPressure','injuryRiskBonus','formVariance'].forEach((key) => {
     assert.ok(covered.indexOf(key) >= 0, '缺少赛季修正说明: ' + key);
   });
+});
+
+check('赛季页用的是折叠版，展开后是同一份内容', () => {
+  const out = makeApi({ profile: { coachTrust: 6 } }).renderSeasonProfileDetails();
+  assert.ok(out.indexOf('<details') === 0, out.slice(0, 40));
+  assert.ok(out.indexOf('生涯档案') >= 0);
+  assert.ok(out.indexOf('教练信任') >= 0, '展开后应包含具体条目');
+  assert.ok(out.indexOf('sr-section-title') < 0, '赛季页标题由 summary 承担，不重复渲染');
+});
+
+check('没有生涯状态时不渲染赛季页档案', () => {
+  const api = makeApi({ state: {} });
+  assert.equal(api.renderSeasonProfileDetails(), '');
+  assert.equal(api.renderCareerProfilePanel(), '');
 });
 
 console.log('\n全部通过：' + passed + ' 项');

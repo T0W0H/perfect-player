@@ -503,6 +503,13 @@ body{font-family:var(--font-body);background:var(--bg);color:var(--text);min-hei
     .pf-w{flex:1;font-size:10px;color:var(--text-dim);line-height:1.5}
     .pf-note{font-size:11px;color:var(--text-dim);line-height:1.6;padding:2px 0}
     .pf-empty{font-size:11px;color:var(--text-muted);padding:4px 0}
+    .season-profile{margin:8px 12px 0;background:var(--bg-card);border:1.5px solid var(--border);border-radius:10px;overflow:hidden}
+    .season-profile>summary{list-style:none;cursor:pointer;padding:8px 10px;font-family:var(--font-display);font-size:12px;font-weight:700;color:var(--text-dim)}
+    .season-profile>summary::-webkit-details-marker{display:none}
+    .season-profile[open]>summary{border-bottom:1px solid var(--border);color:var(--orange)}
+    .season-profile-body{padding:8px 10px 4px}
+    .season-profile-body .pf-row{background:var(--bg)}
+    .season-profile-body .cs-section{margin-bottom:6px}
     .cs-season-detail-overlay{position:fixed;inset:0;z-index:300;background:rgba(0,0,0,0.45);display:flex;align-items:center;justify-content:center;padding:16px;animation:fadeIn .2s ease;backdrop-filter:blur(4px)}
     .cs-season-detail-modal{background:var(--bg);border:2px solid var(--border);border-radius:var(--radius);width:100%;max-width:380px;max-height:80vh;overflow-y:auto;box-shadow:0 8px 48px rgba(0,0,0,0.25);animation:slideUp .25s ease}
     .cs-detail-header{display:flex;align-items:center;justify-content:space-between;padding:12px 14px;border-bottom:1px solid var(--border);position:sticky;top:0;background:var(--bg);z-index:1}
@@ -3747,16 +3754,55 @@ function extractEventChoiceEffectPreview(choice) {
   if (!choice || typeof choice.apply !== 'function') return '';
   var source = '';
   try { source = Function.prototype.toString.call(choice.apply); } catch(e) { return ''; }
-  // 分支或随机结果不能合并成一个确定预告，避免向玩家显示并不会同时发生的变化。
-  if (/Math\.random|\brandom\s*\(|\bif\s*\(|\bswitch\s*\(|\?/.test(source)) return '';
-  var totals = {};
+  var collected = collectEventChoiceEffectStats(source);
+  var risky = /Math\.random|\brandom\s*\(|\bif\s*\(|\bswitch\s*\(|\?/.test(source);
+
+  // 有分支 / 随机时不能把各分支相加，但仍能告诉玩家「会动哪几项、往哪个方向动」，
+  // 而不是丟一句“改变后续剧情”就完事。
+  var changes = collected.order.map(function(mapKey) {
+    var entry = collected.stats[mapKey];
+    var isAttribute = mapKey.indexOf('attr.') === 0;
+    var key = mapKey.slice(mapKey.indexOf('.') + 1);
+    if (risky) return formatEventChoiceEffectDirection(key, entry.min, entry.max, isAttribute);
+    return formatEventChoiceEffect(key, Math.round(entry.sum * 10) / 10, isAttribute);
+  });
+
+  var branchNote = '';
+  if (/setBranchNode\(|setBranchState\(|setBranch\b/.test(source)) branchNote = '推进剧情线（改变之后能遇到的事件与可选路线）';
+  else if (/flags\./.test(source)) branchNote = '记录为生涯标签（会进入退役评价）';
+
+  if (!changes.length) return branchNote;
+  var head = risky ? '结果带随机或前置条件，会改变 ' : '';
+  var tail = branchNote ? ('；并' + branchNote) : '';
+  return head + changes.slice(0, 4).join('、') + tail;
+}
+
+/** 只报道方向，不报道具体数字：用于有分支 / 随机的选项 */
+function formatEventChoiceEffectDirection(key, min, max, isAttribute) {
+  var label = isAttribute && typeof attrCN === 'function' ? attrCN(key) : (EVENT_CHOICE_PREDICTION_LABELS[key] || key);
+  if (key === 'formVariance') return min < 0 ? '状态可能更稳' : '状态波动可能增加';
+  var bad = !!EVENT_CHOICE_BAD_WHEN_RAISED[key];
+  if (min > 0) return label + '可能' + (bad ? '增加' : '提升');
+  if (max < 0) return label + '可能下降';
+  return label + '可能变化';
+}
+
+/** 从 apply 源码里把所有可识别的数值变化收集起来（保留出现顺序） */
+function collectEventChoiceEffectStats(source) {
+  var stats = {};
   var order = [];
   function add(key, amount, isAttribute) {
     amount = Number(amount) || 0;
     if (!amount) return;
     var mapKey = (isAttribute ? 'attr.' : 'state.') + key;
-    if (!Object.prototype.hasOwnProperty.call(totals, mapKey)) order.push(mapKey);
-    totals[mapKey] = (totals[mapKey] || 0) + amount;
+    if (!Object.prototype.hasOwnProperty.call(stats, mapKey)) {
+      stats[mapKey] = { min: amount, max: amount, sum: 0, isAttribute: !!isAttribute };
+      order.push(mapKey);
+    }
+    var entry = stats[mapKey];
+    entry.min = Math.min(entry.min, amount);
+    entry.max = Math.max(entry.max, amount);
+    entry.sum += amount;
   }
   function scan(regex, isAttribute) {
     var match;
@@ -3768,13 +3814,7 @@ function extractEventChoiceEffectPreview(choice) {
   var draftMatch;
   var draftRegex = /changeDraftStock\(\s*(-?\d+(?:\.\d+)?)\s*\)/g;
   while ((draftMatch = draftRegex.exec(source))) add('draftStockBonus', draftMatch[1], false);
-  var changes = order.filter(function(key) { return totals[key] !== 0; }).map(function(mapKey) {
-    var isAttribute = mapKey.indexOf('attr.') === 0;
-    var key = mapKey.slice(mapKey.indexOf('.') + 1);
-    var amount = Math.round(totals[mapKey] * 10) / 10;
-    return formatEventChoiceEffect(key, amount, isAttribute);
-  });
-  return changes.join('、');
+  return { stats: stats, order: order };
 }
 
 function hasEventChoiceOutcomeForecast(text) {
@@ -6097,7 +6137,7 @@ function renderDotGrid() {
 
   // 清空旧内容
   html('season-controls').innerHTML = '';
-  html('gamecast-area').innerHTML = renderTripleChaseBlock();
+  html('gamecast-area').innerHTML = renderTripleChaseBlock() + renderSeasonProfileDetails();
   html('game-list').innerHTML = '';
 
   html('season-header').innerHTML =
@@ -10966,12 +11006,21 @@ var CAREER_SEASON_MOD_GUIDE = [
 ];
 
 function renderCareerProfilePanel() {
+  var body = renderCareerProfileBody();
+  if (!body) return '';
+  return '<div class="sr-section cs-section">'
+    + '<div class="sr-section-title">🧬 生涯档案</div>'
+    + body
+    + '</div>';
+}
+
+/** 档案正文（不带标题，方便赛季页折叠加载） */
+function renderCareerProfileBody() {
   var c = STATE.career;
   if (!c) return '';
   var profile = typeof getCareerProfile === 'function' ? getCareerProfile() : (c.profile || {});
   var effects = typeof getCareerProfileEffects === 'function' ? getCareerProfileEffects() : null;
-  var h = '<div class="sr-section cs-section">';
-  h += '<div class="sr-section-title">🧬 生涯档案</div>';
+  var h = '';
 
   if (effects) {
     h += '<div class="pf-sum">球队地位 <b>' + fmtProfileValue(effects.teamStanding) + '</b> · 公众形象 <b>' + fmtProfileValue(effects.publicStanding) + '</b></div>';
@@ -11009,8 +11058,16 @@ function renderCareerProfilePanel() {
     notes.forEach(function(note) { h += '<div class="pf-note">' + note + '</div>'; });
   }
 
-  h += '</div>';
   return h;
+}
+
+/** 赛季页折叠版的生涯档案：只读，不占地方 */
+function renderSeasonProfileDetails() {
+  if (!STATE.career) return '';
+  var body = typeof renderCareerProfileBody === 'function' ? renderCareerProfileBody() : '';
+  if (!body) return '';
+  return '<details class="season-profile"><summary>🧬 生涯档案</summary>'
+    + '<div class="season-profile-body">' + body + '</div></details>';
 }
 
 function fmtProfileValue(value) {
