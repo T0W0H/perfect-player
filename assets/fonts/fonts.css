@@ -1,0 +1,40 @@
+/* ============================================================
+   本地字体（自托管，取代 fonts.googleapis.com）
+   ------------------------------------------------------------
+   为什么要自托管：
+   - fonts.googleapis.com / fonts.gstatic.com 在中国大陆无法直连，
+     而 <link rel="stylesheet"> 与 @import 都是「阻塞渲染」的请求，
+     会导致首屏空白几十秒甚至一直转圈；
+   - 中文不再下载 Noto Sans SC（Google 按需分片，动辄几百 KB~数 MB），
+     改用系统中文字体，观感几乎一致但零下载。
+   三份字体都是可变字体，一个文件覆盖全部字重（拉丁子集）。
+   许可：均为 SIL Open Font License 1.1，可随项目分发。
+   ============================================================ */
+
+@font-face {
+  font-family: 'Fredoka';
+  font-style: normal;
+  font-weight: 300 700;
+  font-stretch: 100%;
+  font-display: swap;
+  src: url(fredoka-latin.woff2) format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: 'Nunito';
+  font-style: normal;
+  font-weight: 200 1000;
+  font-display: swap;
+  src: url(nunito-latin.woff2) format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: 'Oswald';
+  font-style: normal;
+  font-weight: 200 700;
+  font-display: swap;
+  src: url(oswald-latin.woff2) format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}

@@ -3,9 +3,9 @@
    Loaded AFTER the inline <style> so equal-specificity rules win.
    设计取向：枫木球场底色 + 深海军蓝转播框架 + 篮球皮革橙。
    关键：Oswald 无中文字形，故用 'Oswald','Noto Sans SC' 字栈——
-        拉丁数字走 Oswald(转播/球衣号码感)，中文回退 Noto，不会缺字。
+        拉丁数字走 Oswald(转播/球衣号码感)，中文回退系统字体，不会缺字。
+   字体已在 assets/fonts/fonts.css 自托管，此处不再请求 Google Fonts。
    ============================================================ */
-@import url('https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&display=swap');
 
 :root {
   /* 全局比赛日配色：木地板、球衣海军蓝、篮球皮革橙。 */
@@ -32,7 +32,7 @@
   --court-ink: rgba(75,50,28,.18);
   --foil-1: #f3c65d;
   --foil-2: #c98218;
-  --font-athletic: 'Oswald','Noto Sans SC',sans-serif;
+  --font-athletic: 'Oswald','PingFang SC','Hiragino Sans GB','Microsoft YaHei','Noto Sans SC',sans-serif;
   --shadow: 0 2px 12px rgba(31,35,43,.1);
   --shadow-lg: 0 6px 26px rgba(31,35,43,.16);
   --shadow-court: 0 1px 2px rgba(32,27,20,.08), 0 5px 14px rgba(50,38,25,.11), 0 14px 32px rgba(37,33,28,.07);

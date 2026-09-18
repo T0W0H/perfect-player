@@ -5,14 +5,13 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>Perfect Player · 完美球员</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%8F%80%3C/text%3E%3C/svg%3E">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600;700&family=Nunito:ital,wght@0,400;0,600;0,700;0,800;1,400&family=Noto+Sans+SC:wght@400;500;700;900&display=swap" rel="stylesheet">
+  <!-- 字体自托管：不再请求 fonts.googleapis.com（国内不可直连且阻塞渲染） -->
+  <link rel="preload" href="assets/fonts/fredoka-latin.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="assets/fonts/fonts.css">
   <style>
 /* ============================================================
    BuildPlayer — Mobile-First Game Edition
    ============================================================ */
-@import url('https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600;700&family=Nunito:ital,wght@0,400;0,600;0,700;0,800;1,400&family=Noto+Sans+SC:wght@400;500;700;900&display=swap');
 :root {
   --bg: #faf5eb;--bg-card: #fffaf2;--bg-card-hover: #fff5e8;--bg-elevated: #fff0e0;
   --border: #f0e0cc;--border-light: #e8d5bc;--text: #2d1f0e;--text-dim: #8a7a66;
@@ -21,7 +20,7 @@
   --red: #e63946;--gold: #f7a600;--green: #2ec4b6;
   --shadow: 0 2px 12px rgba(45,31,14,0.08);--shadow-lg: 0 4px 24px rgba(45,31,14,0.12);
   --radius: 16px;--radius-sm: 10px;--radius-xs: 6px;
-  --font-display: 'Fredoka','Noto Sans SC',sans-serif;--font-body: 'Nunito','Noto Sans SC',sans-serif;
+  --font-display: 'Fredoka','PingFang SC','Hiragino Sans GB','Microsoft YaHei','Noto Sans SC',sans-serif;--font-body: 'Nunito','PingFang SC','Hiragino Sans GB','Microsoft YaHei','Noto Sans SC',sans-serif;
   --safe-t: env(safe-area-inset-top,0px);--safe-b: env(safe-area-inset-bottom,0px);
   --safe-l: env(safe-area-inset-left,0px);--safe-r: env(safe-area-inset-right,0px);
 }
