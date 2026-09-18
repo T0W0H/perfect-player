@@ -7,3 +7,8 @@ output/
 
 # 本地导入的第三方名单数据（tools/import_external_pool.mjs 生成，勿提交）
 assets/data/local/
+
+# 历史头像：仓库里只保留运行时真正引用的那批（已缩小到 192px）。
+# 其余原图属于工具素材，需要时用 python tools/fetch_historical_headshots.py 重新下载，不必提交。
+assets/data/historical/headshots/
+# 注意：historical/*.json（players.json 等）来自外部数据源，仓库里没有生成脚本，必须保留
