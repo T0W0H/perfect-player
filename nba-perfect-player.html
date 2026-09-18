@@ -2671,7 +2671,7 @@ var _helpPages = [
   { title: '赛季', content: '抽签决定我的生涯球队后进入赛季。系统根据我与队内同位置球员的总评比较判定首发或替补。每场比赛可点单场推进，也可点击日历日期批量模拟到当天。比赛数据根据属性和位置动态生成，方差较大，有爆发也有低迷。赛季中可随时点我的数据查看场均表现。' },
   { title: '季后赛', content: '常规赛结束后根据排名决定季后赛或附加赛资格。附加赛在七到十名之间进行，逐场淘汰。季后赛每轮七场四胜，我的系列赛会一场一场模拟，每场生成简报。点击简报可展开查看详细比分、我的数据和全队数据。一路赢下去直到总冠军。' },
   { title: '球员状态', content: '赛季与生涯中的压力、体力、士气、媒体关系、教练信任、球迷支持等状态会直接显示在页面上；事件选择会改变这些数值，并继续沿用原有比赛和生涯判定。' },
-  { title: '球队氛围', content: '<b>氛围分两层。</b><br><br><b>赛季级</b>（球队默契、士气、体能负荷、状态波动、媒体压力、伤病风险）：由赛季日常事件和休赛期事件改变，<b>每个休赛期开始时会清零</b>，只影响下一个赛季，所以得靠每年的选择持续投入。<br><br><b>生涯级</b>（教练信任、更衣室信任、领导力、忠诚、球迷支持、人气、商业价值、媒体信任、争议、传奇声望）：<b>跨赛季永久累积，不会自然衰减</b>，直接决定首发竞争、出场时间、每场攻防加成，以及交易 / 裁员 / 续约概率。<br><br>换队、被裁或自由签约到别的球队后，<b>教练信任与更衣室信任会归零</b>——这两项是针对某支球队的关系，不会跟着你走；其余生涯级数值继续保留。' },
+  { title: '球队氛围', content: '<b>氛围分两层。</b><br><br><b>赛季级</b>（球队默契、士气、体能负荷、状态波动、媒体压力、伤病风险）：由赛季日常事件和休赛期事件改变，<b>每个休赛期开始时会清零</b>，只影响下一个赛季，所以得靠每年的选择持续投入。<br><br><b>生涯级</b>（教练信任、更衣室信任、领导力、忠诚、球迷支持、人气、商业价值、媒体信任、争议、传奇声望）：<b>跨赛季永久累积，不会自然衰减</b>，直接决定首发竞争、出场时间、每场攻防加成，以及交易 / 裁员 / 续约概率。<br><br>换队、被裁或自由签约到别的球队时，<b>教练信任与更衣室信任会按生涯长度保留一部分</b>：刚进联盟约保留两成，随效力年数递增，10 个赛季左右封顶在八成——老将的威望能跟着走，年轻人则要重新证明自己；其余生涯级数值不受换队影响。' },
   { title: '球队与留守', content: '球队实力来自阵容：首发和主要替补的属性、总评与出场时间共同决定球队的攻防、节奏与深度，<b>队友的交易、退役、老龄化和成长都会直接改变球队强弱</b>，并影响每场比赛的胜负。<br><br>阵容变弱的球队会在自由市场优先挑人，重建期的年轻球员成长也更快，所以战绩通常会在几个赛季后慢慢回来；反过来，主力流失也会真的体现在输球上。<br><br><b>留守奖励</b>：连续效力同一支球队会累积年限，带来：开季球队默契 +1（每满 2 季，上限 +3）、被交易概率每 2 季 −1（上限 −4）、续约率每季 +1%（上限 +8%）、以及每季额外训练点（连续 3 / 6 / 10 季 → +1 / +2 / +3）。<br><br>换队后年限从 0 重新计算，所以自己培养一支球队和不断抱团，收益是不同的。', },
 ];
 
@@ -5636,6 +5636,159 @@ function calcSeasonAwards() {
       STATE.season.awards.push({ act:'sixthman', label:'最佳第六人', winner:bCN2, winnerEN:bestBench?.name || '', team:bestBTeam, isUser:false, userRank:userSixthRank });
     }
   })();
+
+  // ==================== 数据王（得分 / 篮板 / 助攻 / 抢断 / 盖帽） ====================
+  // 联盟球员没有逐场统计，沿用全明星候选的口径：用 OVR + 位置推算数据，再叠少量随机波动。
+  (function() {
+    function estimateNpcStat(p, key) {
+      var ovr = parseInt(p.ovr) || 60;
+      var pos = (p.pos || 'SF').split('/')[0].trim();
+      var noise = (Math.random() - 0.5);
+      if (key === 'pts') return ovr * 0.34 - 2 + noise * 2.6;
+      if (key === 'reb') {
+        var reb = pos === 'C' ? ovr * 0.16 + 1.5 : (pos === 'PF' ? ovr * 0.13 + 1 : ovr * 0.07 + 1);
+        return reb + noise * 1.2;
+      }
+      if (key === 'ast') {
+        var ast = pos === 'PG' ? ovr * 0.13 + 2 : (pos === 'SG' ? ovr * 0.08 + 1 : ovr * 0.05 + 1);
+        return ast + noise * 1.2;
+      }
+      if (key === 'stl') return (parseInt(p.PDEF) || 60) * 0.012 + (parseInt(p.ATH) || 60) * 0.008 + 0.2 + noise * 0.25;
+      return (parseInt(p.BLK) || 50) * 0.02 + (parseInt(p.IDEF) || 60) * 0.012 + noise * 0.3;
+    }
+
+    var STAT_TITLES = [
+      { act:'scoring', label:'得分王', stat:'pts', unit:'分' },
+      { act:'rebound', label:'篮板王', stat:'reb', unit:'篮板' },
+      { act:'assist',  label:'助攻王', stat:'ast', unit:'助攻' },
+      { act:'steal',   label:'抢断王', stat:'stl', unit:'抢断' },
+      { act:'block',   label:'盖帽王', stat:'blk', unit:'盖帽' },
+    ];
+    var gamesEnoughForTitle = g >= 58; // 数据王出勤门槛
+
+    STAT_TITLES.forEach(function(cfg) {
+      var npcValues = [];
+      var bestNpc = null, bestVal = -1, bestTeam = '';
+      for (var _t = 0; _t < NBA2K_TEAMS.length; _t++) {
+        var roster = NBA2K_DATA[NBA2K_TEAMS[_t]] || [];
+        for (var _i = 0; _i < roster.length; _i++) {
+          var p = roster[_i];
+          if (p._isUser) continue;
+          if ((parseInt(p.ovr) || 0) < 72) continue; // 只在轮换球员里评
+          var value = estimateNpcStat(p, cfg.stat);
+          npcValues.push(value);
+          if (value > bestVal) { bestVal = value; bestNpc = p; bestTeam = NBA2K_TEAMS[_t]; }
+        }
+      }
+      npcValues.sort(function(a, b) { return b - a; });
+      var userVal = Number(avg[cfg.stat]) || 0;
+      var betterCount = 0;
+      for (var _v = 0; _v < npcValues.length; _v++) { if (npcValues[_v] > userVal) betterCount++; }
+      var rankNum = betterCount + 1;
+      var userWins = gamesEnoughForTitle && rankNum === 1;
+      var rankText;
+      if (!gamesEnoughForTitle) rankText = '出勤不足';
+      else if (rankNum === 1) rankText = '🥇 第一名';
+      else if (rankNum === 2) rankText = '🥈 第二名';
+      else if (rankNum === 3) rankText = '🥉 第三名';
+      else rankText = '第 ' + rankNum + ' 名';
+      var winnerVal = userWins ? userVal : bestVal;
+      STATE.season.awards.push({
+        act: cfg.act,
+        label: cfg.label,
+        winner: userWins ? getHupuDisplayName() : (bestNpc ? (bestNpc.cname || bestNpc.name) : '未知'),
+        winnerEN: userWins ? '' : (bestNpc ? (bestNpc.name || '') : ''),
+        team: userWins ? STATE.careerTeam : bestTeam,
+        isUser: userWins,
+        userRank: rankText,
+        summary: '场均 ' + winnerVal.toFixed(1) + ' ' + cfg.unit + (userWins ? ' · 联盟第一' : ' · 你场均 ' + userVal.toFixed(1)),
+      });
+    });
+  })();
+
+  // ==================== 最佳防守阵容 ====================
+  (function() {
+    var defenders = [];
+    for (var _t = 0; _t < NBA2K_TEAMS.length; _t++) {
+      var roster = NBA2K_DATA[NBA2K_TEAMS[_t]] || [];
+      for (var _i = 0; _i < roster.length; _i++) {
+        var p = roster[_i];
+        if (p._isUser) continue;
+        if ((parseInt(p.ovr) || 0) < 72) continue;
+        defenders.push({
+          name: p.cname || p.name,
+          playerName: p.name || '',
+          team: NBA2K_TEAMS[_t],
+          score: ((parseInt(p.PDEF) || 60) * 0.5) + ((parseInt(p.IDEF) || 60) * 0.5) + ((parseInt(p.BLK) || 50) * 0.8) + ((parseInt(p.ovr) || 70) * 0.3),
+        });
+      }
+    }
+    defenders.sort(function(a, b) { return b.score - a.score; });
+    var selectedDef = defenders.slice(0, 5);
+    var userDefScore = ((parseInt(STATE.attrs.PDEF) || 60) * 0.5) + ((parseInt(STATE.attrs.IDEF) || 60) * 0.5) + ((parseInt(STATE.attrs.BLK) || 50) * 0.8) + ((parseInt(STATE.finalOVR) || 70) * 0.3);
+    var defGamesEnough = g >= 58;
+    var betterDef = 0;
+    for (var _d = 0; _d < defenders.length; _d++) { if (defenders[_d].score > userDefScore) betterDef++; }
+    var userInDef = defGamesEnough && betterDef <= 4 && defenders.length >= 5;
+    var userDefRank;
+    if (!defGamesEnough) userDefRank = '出勤不足';
+    else if (userInDef) userDefRank = '🥇 入选最佳防守阵容';
+    else if (betterDef < 8) userDefRank = '候补（第 ' + (betterDef + 1) + ' 名）';
+    else userDefRank = '未入选';
+    if (userInDef) {
+      // 按真实名次插入，再把多出来的人挤掉，保证名单顺序正确
+      selectedDef.splice(betterDef, 0, { name: getHupuDisplayName(), playerName: '', isUser: true });
+      selectedDef = selectedDef.slice(0, 5);
+    }
+    var defNames = selectedDef.map(function(x) { return x.name; });
+    var defEnNames = selectedDef.map(function(x) { return x.playerName || ''; });
+    STATE.season.awards.push({ act:'allDefense', label:'最佳防守阵容', winner:defNames.join('、'), winnerEN:defEnNames.join(','), team:'', isUser:userInDef, userRank:userDefRank, isList:true });
+  })();
+
+  // ==================== 进步最快球员 ====================
+  // 用户：与上一个赛季的场均表现比较；新秀赛季不参与。NPC 用「年轻 + 高总评」启发式。
+  (function() {
+    var seasons = (STATE.career && STATE.career.seasons) || [];
+    var prevSeason = seasons.length > 0 ? seasons[seasons.length - 1] : null;
+    var userScore = (avg.pts || 0) * 1.0 + (avg.reb || 0) * 0.7 + (avg.ast || 0) * 0.8;
+    var mipWin = false;
+    var userMipRank = '新秀赛季不参与评选';
+    var improvedText = '';
+    if (prevSeason && prevSeason.playerStats && prevSeason.playerStats.games) {
+      var prev = prevSeason.playerStats;
+      var prevG = prev.games || 1;
+      var prevScore = (prev.pts / prevG) * 1.0 + (prev.reb / prevG) * 0.7 + (prev.ast / prevG) * 0.8;
+      var delta = userScore - prevScore;
+      improvedText = '场均综合 ' + prevScore.toFixed(1) + '→' + userScore.toFixed(1) + '（' + (delta >= 0 ? '+' : '') + delta.toFixed(1) + '）';
+      if (delta >= 6) { mipWin = true; userMipRank = '🥇 第一名'; }
+      else if (delta >= 4) { mipWin = Math.random() < 0.5; userMipRank = mipWin ? '🥇 第一名' : '进入评选'; }
+      else if (delta >= 2) userMipRank = '进入评选';
+      else userMipRank = '未进入评选';
+    }
+    var mipWinner = null, mipWinnerTeam = '';
+    for (var _t = 0; _t < NBA2K_TEAMS.length; _t++) {
+      var roster = NBA2K_DATA[NBA2K_TEAMS[_t]] || [];
+      for (var _i = 0; _i < roster.length; _i++) {
+        var p = roster[_i];
+        if (p._isUser) continue;
+        var age = typeof getLeaguePlayerAge === 'function' ? getLeaguePlayerAge(p) : (p._age || 24);
+        if (age > 25) continue;
+        var score = (parseInt(p.ovr) || 60) + Math.random() * 6;
+        if (!mipWinner || score > mipWinner._mipScore) { p._mipScore = score; mipWinner = p; mipWinnerTeam = NBA2K_TEAMS[_t]; }
+      }
+    }
+    if (mipWinner) delete mipWinner._mipScore;
+    STATE.season.awards.push({
+      act:'mip', label:'进步最快球员',
+      winner: mipWin ? getHupuDisplayName() : (mipWinner ? (mipWinner.cname || mipWinner.name) : '未知'),
+      winnerEN: mipWin ? '' : (mipWinner ? (mipWinner.name || '') : ''),
+      team: mipWin ? STATE.careerTeam : mipWinnerTeam,
+      isUser: mipWin,
+      userRank: userMipRank,
+      summary: improvedText || '',
+    });
+  })();
+
   updateAwardStreaks();
   } catch(e) { STATE.season.awards = STATE.season.awards || []; }
 }
@@ -5663,8 +5816,8 @@ function showAwardsScreen() {
 
   setTimeout(function() {
   var seed = getConferenceSeed(STATE.careerTeam);
-  var emojiMap = { mvp:'🏆', dpoy:'🔒', mip:'📈', allStar:'⭐', allNBA:'🌟', allDefense:'🛡️', roty:'🌱', allRookie:'🌱', sixthman:'🔥' };
-  var catMap = { mvp:'最有价值球员', dpoy:'最佳防守球员', mip:'进步最快球员', allStar:'全明星', allNBA:'最佳阵容', allDefense:'最佳防守阵容', roty:'最佳新秀', allRookie:'最佳新秀阵容', sixthman:'最佳第六人' };
+  var emojiMap = { mvp:'🏆', dpoy:'🔒', mip:'📈', allStar:'⭐', allNBA:'🌟', allDefense:'🛡️', roty:'🌱', allRookie:'🌱', sixthman:'🔥', scoring:'🎯', rebound:'💪', assist:'🅰️', steal:'🧤', block:'🚫' };
+  var catMap = { mvp:'最有价值球员', dpoy:'最佳防守球员', mip:'进步最快球员', allStar:'全明星', allNBA:'最佳阵容', allDefense:'最佳防守阵容', roty:'最佳新秀', allRookie:'最佳新秀阵容', sixthman:'最佳第六人', scoring:'得分王', rebound:'篮板王', assist:'助攻王', steal:'抢断王', block:'盖帽王' };
 
   function getHs(enName) {
     if (!enName) return '';
@@ -5673,7 +5826,7 @@ function showAwardsScreen() {
   }
 
   var rowsHtml = '';
-  var order = ['mvp', 'dpoy', 'mip', 'allStar', 'roty', 'sixthman', 'allNBA', 'allDefense', 'allRookie'];
+  var order = ['mvp', 'dpoy', 'mip', 'allStar', 'roty', 'sixthman', 'allNBA', 'allDefense', 'allRookie', 'scoring', 'rebound', 'assist', 'steal', 'block'];
   var isFirstAwardSeason = !STATE.career || STATE.career.seasonCount === 0;
   var rowsRendered = 0;
   for (var oi = 0; oi < order.length; oi++) {
@@ -10123,20 +10276,31 @@ function addProfileDelta(key, delta) {
   return p[key];
 }
 
-// ==================== 换队后的球队关系重置 ====================
-// 教练信任 / 更衣室信任是“对某支球队”的关系，不会跟着球员走。
-// 想保留一部分（例如老将威望）把系数改成 0.3 之类即可，0 = 完全清零。
-var TEAM_RELATION_RESET_FACTOR = 0;
+// ==================== 换队后的球队关系保留 ====================
+// 教练信任 / 更衣室信任是“对某支球队”的关系。换队时不再直接清零，而是按生涯长度
+// 保留一部分：效力越久，越能把威望带到新球队。默认 1 个赛季保留两成，10 个赛季封顶八成。
+var TEAM_RELATION_RETENTION = {
+  base: 0.2,        // 刚进联盟就换队也保留两成
+  perSeason: 0.055, // 每完成一个赛季多保留 5.5%
+  max: 0.8,         // 上限：最多保留八成
+};
+
+function getTeamRelationRetentionFactor() {
+  var seasons = (STATE.career && Number(STATE.career.seasonCount)) || 0;
+  return Math.min(TEAM_RELATION_RETENTION.max, TEAM_RELATION_RETENTION.base + seasons * TEAM_RELATION_RETENTION.perSeason);
+}
 
 function resetTeamRelationsOnTeamChange() {
   var p = getCareerProfile();
   var affected = [];
+  var keepRate = getTeamRelationRetentionFactor();
   // 换队后留守默契同样失效（自由签约发生在开季之后，这里要把加成收回去）
   var revoked = typeof revokeLoyaltyChemistryBonus === 'function' ? revokeLoyaltyChemistryBonus() : 0;
   [['coachTrust', '教练信任'], ['lockerRoomTrust', '更衣室信任']].forEach(function(pair) {
     var before = Number(p[pair[0]]) || 0;
     if (!before) return;
-    var after = Math.floor(before * TEAM_RELATION_RESET_FACTOR);
+    var after = Math.round(before * keepRate);
+    if (after === before) return;
     p[pair[0]] = after;
     affected.push(pair[1] + ' ' + before + '→' + after);
   });
@@ -18336,7 +18500,7 @@ function doTradeUser(destTeam, done) {
   }
   var oldTn = getTeamName ? getTeamName(old) : old;
   var newTn = getTeamName ? getTeamName(destTeam) : destTeam;
-  var msg = '休赛期的最后一天，交易官宣：' + oldTn + '把' + displayName + '送到' + newTn + '。新闻标题很短：换未来资产。<br><br>效果：球迷支持-2；忠诚-1；媒体压力+1。' + (relationReset.length ? '<br>新球队的关系从零开始：' + relationReset.join('；') + '。' : '');
+  var msg = '休赛期的最后一天，交易官宣：' + oldTn + '把' + displayName + '送到' + newTn + '。新闻标题很短：换未来资产。<br><br>效果：球迷支持-2；忠诚-1；媒体压力+1。' + (relationReset.length ? '<br>换队适应（按生涯长度保留 ' + Math.round(getTeamRelationRetentionFactor() * 100) + '%）：' + relationReset.join('；') + '。' : '');
   recordMobilityHistory('trade', '交易官宣', msg);
   showOffseasonResultModal('交易官宣', msg, function() {
     showMobilityChoiceModal('交易官宣',
@@ -18379,7 +18543,7 @@ function doWaiveUser(done) {
   var relationReset = resetTeamRelationsOnTeamChange();
   setBranchNode('transfer', 'transfer_start');
   var oldTn = getTeamName ? getTeamName(old) : old;
-  var msg = oldTn + '宣布裁掉' + displayName + '。管理层没有多解释，新闻稿只有一行：感谢为球队所做的一切。<br><br>效果：球迷支持-1；媒体压力+1；你将进入自由市场。' + (relationReset.length ? '<br>新球队的关系从零开始：' + relationReset.join('；') + '。' : '');
+  var msg = oldTn + '宣布裁掉' + displayName + '。管理层没有多解释，新闻稿只有一行：感谢为球队所做的一切。<br><br>效果：球迷支持-1；媒体压力+1；你将进入自由市场。' + (relationReset.length ? '<br>换队适应（按生涯长度保留 ' + Math.round(getTeamRelationRetentionFactor() * 100) + '%）：' + relationReset.join('；') + '。' : '');
   recordMobilityHistory('waive', '裁员官宣', msg);
   showOffseasonResultModal('裁员官宣', msg, done, diffEventAttributeSnapshot(beforeAttributes));
 }
@@ -18768,7 +18932,7 @@ function showFreeAgencyTeamChangeModal(oldTeam, newTeam, done) {
   var relationNote = STATE._teamRelationResetNote;
   delete STATE._teamRelationResetNote;
   if (relationNote && relationNote.length) {
-    html += '<div style="font-size:12px;color:var(--text-dim);margin-top:6px;line-height:1.55;">新球队的关系从零开始：' + relationNote.join('；') + '。</div>';
+    html += '<div style="font-size:12px;color:var(--text-dim);margin-top:6px;line-height:1.55;">换队适应（按生涯长度保留 ' + Math.round(getTeamRelationRetentionFactor() * 100) + '%）：' + relationNote.join('；') + '。</div>';
   }
   html += '</div>';
   html += '<div style="padding:0 12px 12px;max-height:58vh;overflow-y:auto;">';
