@@ -10064,8 +10064,21 @@ function applyLoyaltyChemistryBonus() {
   if (bonus <= 0) return 0;
   var mods = getNextSeasonMods();
   mods.teamChemistry = Math.min(10, (Number(mods.teamChemistry) || 0) + bonus);
+  c.loyaltyBonusApplied = bonus; // 记住本次加了多少，换队时可以精确撤回
   if (typeof refreshPlayerStateStripLive === 'function') refreshPlayerStateStripLive();
   return bonus;
+}
+
+/** 换队时撤回本赛季的留守默契（自由签约发生在开季之后，必须能反悔） */
+function revokeLoyaltyChemistryBonus() {
+  var c = STATE.career;
+  if (!c || !c.loyaltyBonusApplied) return 0;
+  var applied = Number(c.loyaltyBonusApplied) || 0;
+  c.loyaltyBonusApplied = 0;
+  var mods = getNextSeasonMods();
+  mods.teamChemistry = Math.max(-10, (Number(mods.teamChemistry) || 0) - applied);
+  if (typeof refreshPlayerStateStripLive === 'function') refreshPlayerStateStripLive();
+  return applied;
 }
 
 function getCareerProfileEffects() {
@@ -10118,6 +10131,8 @@ var TEAM_RELATION_RESET_FACTOR = 0;
 function resetTeamRelationsOnTeamChange() {
   var p = getCareerProfile();
   var affected = [];
+  // 换队后留守默契同样失效（自由签约发生在开季之后，这里要把加成收回去）
+  var revoked = typeof revokeLoyaltyChemistryBonus === 'function' ? revokeLoyaltyChemistryBonus() : 0;
   [['coachTrust', '教练信任'], ['lockerRoomTrust', '更衣室信任']].forEach(function(pair) {
     var before = Number(p[pair[0]]) || 0;
     if (!before) return;
@@ -10125,6 +10140,7 @@ function resetTeamRelationsOnTeamChange() {
     p[pair[0]] = after;
     affected.push(pair[1] + ' ' + before + '→' + after);
   });
+  if (revoked) affected.push('球队默契 -' + revoked + '（换队清零）');
   if (affected.length) {
     if (typeof clearLineupCache === 'function') clearLineupCache();
     if (STATE.season && STATE.careerTeam && typeof syncUserStarterStatus === 'function') syncUserStarterStatus();

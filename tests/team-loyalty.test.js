@@ -50,21 +50,24 @@ const source = [
   'var LOYALTY_BONUS = ' + extractObjectVar(html, 'LOYALTY_BONUS') + ';',
   extractFunction(html, 'getTeamTenureSeasons'),
   extractFunction(html, 'getLoyaltyTrainingBonus'),
+  extractFunction(html, 'applyLoyaltyChemistryBonus'),
+  extractFunction(html, 'revokeLoyaltyChemistryBonus'),
   extractFunction(html, 'getCareerProfile'),
   extractFunction(html, 'clampCareerEffect'),
   extractFunction(html, 'getCareerProfileEffects'),
-  'return { tenure: getTeamTenureSeasons, loyaltyPoints: getLoyaltyTrainingBonus, effects: getCareerProfileEffects };',
+  'return { tenure: getTeamTenureSeasons, loyaltyPoints: getLoyaltyTrainingBonus, applyChemistry: applyLoyaltyChemistryBonus, revokeChemistry: revokeLoyaltyChemistryBonus, effects: getCareerProfileEffects };',
 ].join('\n');
 
-const api = new Function('STATE', source);
+const buildWithApi = new Function('STATE', 'getNextSeasonMods', 'refreshPlayerStateStripLive', source);
 
-function build(seasons, careerTeam, profile) {
+function build(seasons, careerTeam, profile, mods) {
   const STATE = {
     career: { seasons: seasons, profile: profile || {}, currentAge: 30 },
     careerTeam: careerTeam,
     season: {},
   };
-  return api(STATE);
+  const nextMods = mods || { teamChemistry: 0 };
+  return buildWithApi(STATE, () => nextMods, () => {});
 }
 
 let passed = 0;
@@ -129,6 +132,27 @@ check('年限奖励叠加在既有档案数值之上', () => {
   const effects = withTrust.effects();
   assert.ok(effects.tradeChanceDelta <= 0, '高争议但老将留守也不会更容易被交易');
   assert.ok(effects.renewalChanceBonus > 0.02);
+});
+
+check('开季默契加成按年限写入，换队时精确撤回', () => {
+  const seasons = [];
+  for (let i = 0; i < 6; i++) seasons.push({ team: 'LAL' });
+  const mods = { teamChemistry: 1 };
+  const api6 = build(seasons, 'LAL', {}, mods);
+  assert.equal(api6.applyChemistry(), 3, '6 季 → 默契 +3');
+  assert.equal(mods.teamChemistry, 4);
+  assert.equal(api6.applyChemistry(), 0, '同一赛季不重复加');
+  assert.equal(mods.teamChemistry, 4);
+  assert.equal(api6.revokeChemistry(), 3, '换队撤回 3 点');
+  assert.equal(mods.teamChemistry, 1);
+  assert.equal(api6.revokeChemistry(), 0, '重复撤回无效果');
+});
+
+check('年限不足时开季默契不加也不报错', () => {
+  const mods = { teamChemistry: 2 };
+  const fresh = build([{ team: 'LAL' }], 'LAL', {}, mods);
+  assert.equal(fresh.applyChemistry(), 0);
+  assert.equal(mods.teamChemistry, 2);
 });
 
 console.log('\n全部通过：' + passed + ' 项');
