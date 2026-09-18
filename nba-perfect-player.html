@@ -1719,32 +1719,7 @@ body{font-family:var(--font-body);background:var(--bg);color:var(--text);min-hei
 // ── 头像模式切换 ──
 // sprite → 使用 sprite 贴图（默认）
 // nba    → 使用 NBA CDN 直链
-/** 获取球员头像样式（仅 NBA CDN） */
-function getPlayerHeadshotStyle(playerName, displaySize) {
-  if (!playerName) return '';
-  displaySize = displaySize || 30;
-  if (window.PERFECT_PLAYER_PHOTO_BY_NAME && window.PERFECT_PLAYER_PHOTO_BY_NAME[playerName]) {
-    var localPhoto = window.PERFECT_PLAYER_PHOTO_BY_NAME[playerName];
-    return 'background-image:url(' + localPhoto + ');background-size:cover;background-position:center top;background-repeat:no-repeat;width:' + displaySize + 'px;height:' + displaySize + 'px;';
-  }
-  if (typeof NBA_PLAYER_IMAGES !== 'undefined') {
-    var fixedName = (typeof HEADSHOT_NAME_FIX !== 'undefined' && HEADSHOT_NAME_FIX[playerName]) || playerName;
-    var pid = NBA_PLAYER_IMAGES[fixedName];
-    if (!pid) {
-      for (var key in NBA_PLAYER_IMAGES) {
-        if (key.indexOf(playerName) >= 0 || playerName.indexOf(key) >= 0 ||
-            (fixedName !== playerName && (key.indexOf(fixedName) >= 0 || fixedName.indexOf(key) >= 0))) {
-          pid = NBA_PLAYER_IMAGES[key]; break;
-        }
-      }
-    }
-    if (pid) {
-      var url = 'https://cdn.nba.com/headshots/nba/latest/260x190/' + pid + '.png';
-      return 'background-image:url(' + url + ');background-size:cover;background-position:center;background-repeat:no-repeat;width:' + displaySize + 'px;height:' + displaySize + 'px;';
-    }
-  }
-  return '';
-}
+
 </script>
 <script>
 /** 名字修正映射（ASCII名 → CDN带重音名） */
@@ -7390,65 +7365,6 @@ function simLeagueDay(daySchedule) {
 }
 
 // ==================== 赛季进行 ====================
-// ★ [实验性] 以下函数已被 quickSimAllGames 替代，保留作参考
-/*
-function simNextGame() {
-  // ★ 批量进行中时禁止单场点击，防止重复计数
-  if (STATE._batchInProgress) return;
-  const schedule = STATE.season.schedule;
-  const next = schedule.find(g => !g.simulated);
-  if (!next) { showEndOfSeason(); return; }
-  
-  const result = simulateGameNew(STATE.careerTeam, next.opponent);
-  next.simulated = true;
-  next.result = result;
-  
-  if (result.won) STATE.season.wins++;
-  else STATE.season.losses++;
-  
-  // 更新联盟排名（包括我们自己！）
-  const ourStanding = STATE.season.standings[STATE.careerTeam];
-  const oppStanding = STATE.season.standings[next.opponent];
-  if (ourStanding) {
-    if (result.won) ourStanding.wins++; else ourStanding.losses++;
-  }
-  if (oppStanding) {
-    if (result.won) oppStanding.losses++; else oppStanding.wins++;
-    updateStreak(next.opponent, !result.won);
-  }
-  updateStreak(STATE.careerTeam, result.won);
-  
-  // 你的数据
-  const stats = generatePlayerStatsNew(STATE.attrs, result, false);
-  const ps = STATE.season.playerStats;
-  ps.pts += stats.pts; ps.reb += stats.reb; ps.ast += stats.ast;
-  ps.stl += stats.stl; ps.blk += stats.blk; ps.tov += stats.tov;
-  ps.fgm += stats.fgm; ps.fga += stats.fga;
-  ps.ftm += stats.ftm; ps.fta += stats.fta;
-  ps.threeM += stats.threeM; ps.threeA += stats.threeA;
-  ps.mins = (ps.mins || 0) + stats.mins;
-  ps.games++;
-  
-  STATE.season.games.push({ result, stats, game: next });
-  
-  // ★ 同步所有未处理比赛到当前日期
-  simDayLeagueGames(next.day);
-  
-  // 自动翻到下一场所在月份
-  const nextUnplayed = schedule.find(g => !g.simulated);
-  if (nextUnplayed) {
-    for (let m = 0; m < SEASON_MONTHS.length; m++) {
-      if (nextUnplayed.day >= SEASON_MONTHS[m].start && nextUnplayed.day <= SEASON_MONTHS[m].end) {
-        STATE._calendarMonth = m;
-        break;
-      }
-    }
-  }
-  
-  // renderSeasonUI();
-  // renderGameList();
-}
-*/
 
 function updateStreak(team, won) {
   const s = STATE.season.standings[team];
@@ -7461,77 +7377,6 @@ function updateStreak(team, won) {
   }
 }
 
-// ★ [实验性] 以下函数已被 quickSimAllGames 替代，保留作参考
-/*
-function simBatch(count) {
-  if (STATE._batchInProgress) return;
-  STATE._batchInProgress = true;
-  
-  const schedule = STATE.season.schedule;
-  const gamesToSim = schedule.filter(g => !g.simulated).slice(0, count);
-  if (gamesToSim.length === 0) { STATE._batchInProgress = false; return; }
-  
-  // 显示进度指示
-  const controls = document.getElementById('season-controls');
-  if (controls) controls.innerHTML = '<div style="text-align:center;padding:8px;font-family:var(--font-display);font-size:13px;color:var(--orange);">⏳ 模拟中 <span id="sim-progress">0/' + gamesToSim.length + '</span></div>';
-  
-  let gameIdx = 0;
-  
-  function simNextGameInBatch() {
-    if (gameIdx >= gamesToSim.length) {
-      STATE._batchInProgress = false;
-      if (!schedule.find(h => !h.simulated)) {
-        showEndOfSeason();
-      } else {
-        renderSeasonUI();
-      }
-      return;
-    }
-    
-    const g = gamesToSim[gameIdx++];
-    
-    const result = simulateGameNew(STATE.careerTeam, g.opponent);
-    g.simulated = true;
-    g.result = result;
-    
-    if (result.won) STATE.season.wins++;
-    else STATE.season.losses++;
-    
-    const ourStanding = STATE.season.standings[STATE.careerTeam];
-    const oppStanding = STATE.season.standings[g.opponent];
-    if (ourStanding) {
-      if (result.won) ourStanding.wins++; else ourStanding.losses++;
-    }
-    if (oppStanding) {
-      if (result.won) oppStanding.losses++; else oppStanding.wins++;
-      updateStreak(g.opponent, !result.won);
-    }
-    updateStreak(STATE.careerTeam, result.won);
-    
-    const stats = generatePlayerStatsNew(STATE.attrs, result, false);
-    const ps = STATE.season.playerStats;
-    ps.pts += stats.pts; ps.reb += stats.reb; ps.ast += stats.ast;
-    ps.stl += stats.stl; ps.blk += stats.blk; ps.tov += stats.tov;
-    ps.fgm += stats.fgm; ps.fga += stats.fga;
-    ps.ftm += stats.ftm; ps.fta += stats.fta;
-    ps.threeM += stats.threeM; ps.threeA += stats.threeA;
-    ps.mins = (ps.mins || 0) + stats.mins;
-    ps.games++;
-    
-    STATE.season.games.push({ result, stats, game: g });
-    simDayLeagueGames(g.day);
-    
-    const curMonthIdx = SEASON_MONTHS.findIndex(m => g.day >= m.start && g.day <= m.end);
-    if (curMonthIdx >= 0) STATE._calendarMonth = curMonthIdx;
-    renderSeasonUI();
-    
-    const prog = document.getElementById('sim-progress');
-    if (prog) prog.textContent = gameIdx + '/' + gamesToSim.length;
-    
-    setTimeout(simNextGameInBatch, 40);
-  }
-  
-*/
 
 /** 处理所有剩余比赛日（赛季结束时调用） */
 function processAllRemainingDays() {
@@ -7642,82 +7487,6 @@ function renderGameCastNew(game, result, stats) {
 }
 
 // ==================== 赛季UI ====================
-// ★ [实验性] 以下函数已被 quickSimAllGames + renderDotGrid 替代，保留作参考
-/*
-function renderSeasonUI() {
-  const rec = STATE.season;
-  if (!rec || !rec.playerStats) return;
-  
-  // 最近5场
-  const recentGames = STATE.season.games.slice(-5);
-  let last5Html = recentGames.map(g => 
-    `<span class="wl-dot ${g.result.won ? 'wl-w' : 'wl-l'}">${g.result.won ? 'W' : 'L'}</span>`
-  ).join('');
-  
-  // 场均数据
-  const gp = rec.playerStats.games || 1;
-  const avg = {
-    pts: Math.round(rec.playerStats.pts / gp * 10) / 10,
-    reb: Math.round(rec.playerStats.reb / gp * 10) / 10,
-    ast: Math.round(rec.playerStats.ast / gp * 10) / 10,
-  };
-  
-  // 连胜/连败
-  const streak = STATE.season.standings[STATE.careerTeam]?.streak || '';
-  const streakLen = STATE.season.standings[STATE.careerTeam]?.streakLen || 0;
-  const streakStr = streakLen > 0 ? `${streak}${streakLen}` : '';
-  
-  html('season-header').innerHTML = `
-    <div class="sh-top">
-      <div class="sh-team">
-        <div class="sh-team-name">${getTeamLogo(STATE.careerTeam, 24)} ${getTeamName(STATE.careerTeam)}</div>
-        <div class="sh-team-full">${(window.TEAM_CITY && window.TEAM_CITY[STATE.careerTeam]) || ''}</div>
-      </div>
-      <div class="sh-season">${getCurrentSeasonLabel()}</div>
-      <div class="sh-record">
-        <span class="sh-wins">${rec.wins}</span><span class="sh-dash">-</span><span class="sh-losses">${rec.losses}</span>
-        <div class="sh-pct">${rec.wins + rec.losses > 0 ? (rec.wins / (rec.wins + rec.losses) * 100).toFixed(1) + '%' : '—'}</div>
-      </div>
-    </div>
-    <div class="sh-info">
-      <span>${SIM_CONFIG.POSITIONS[STATE.position]} · OVR ${STATE.finalOVR}</span>
-      <span>场均 ${avg.pts}分 ${avg.reb}板 ${avg.ast}助</span>
-      <span>${last5Html ? '最近: ' + last5Html : ''} ${streakStr}</span>
-    </div>
-  `;
-  
-  // 判断所有比赛是否已打完
-  const allDone = STATE.season.schedule && !STATE.season.schedule.find(g => !g.simulated);
-  const seed = getConferenceSeed(STATE.careerTeam);
-  let nextBtn = '';
-  if (allDone) {
-    if (seed <= 10) {
-      nextBtn = `<button class="btn btn-gold btn-sm" onclick="renderPlayoffs()" style="flex:1;">🏀 进入季后赛</button>`;
-    } else {
-      nextBtn = `<button class="btn btn-secondary btn-sm" onclick="showSeasonResults()" style="flex:1;">📊 查看赛季总结</button>`;
-    }
-  } else {
-    const nextGame = STATE.season.schedule?.find(g => !g.simulated);
-    const oppName = nextGame ? getTeamName(nextGame.opponent) : '';
-    const prefix = nextGame ? (nextGame.home ? 'vs' : '@') : '';
-    nextBtn = `
-      <button class="btn btn-gold btn-sm" onclick="simNextGame()" style="flex:1;">进行下一场</button>
-      <button class="btn btn-gold btn-sm" onclick="simBatch(10)" style="flex:1;">⏩ 进行下十场</button>
-    `;
-  }
-  html('season-controls').innerHTML = `
-    ${nextBtn}
-    <button class="btn btn-secondary btn-sm" onclick="showMyCard()">📊 我的数据</button>
-  `;
-  
-  // renderCalendar();  // 日历模式已注释
-}
-*/
-/*
-function renderGameList() {
-  // renderCalendar();  // 日历模式已注释
-}
-*/
 
 // ==================== 日历赛程 ====================
 /** 月份→day区间（day 0 = 2025年10月21日 赛季首日） */
@@ -8008,107 +7777,6 @@ function closeStandingsModal() {
   if (modal) modal.remove();
 }
 
-// ★ [实验性] 以下函数已被 quickSimAllGames 替代，保留作参考
-/*
-function simToDay(targetDay) {
-  const month = SEASON_MONTHS.find(m => targetDay >= m.start && targetDay <= m.end);
-  const dateStr = month ? `${month.name}${targetDay - month.start + month.firstDate}日` : `第${targetDay + 1}天`;
-  
-  const modal = document.createElement('div');
-  modal.className = 'modal-overlay';
-  modal.innerHTML = `
-    <div class="modal-content" style="max-width:300px;text-align:center;">
-      <div class="modal-header" style="justify-content:center;border:none;padding:20px 16px 8px;">
-        <span style="font-family:var(--font-display);font-size:20px;">⏩ 模拟到 ${dateStr}？</span>
-      </div>
-      <div style="padding:4px 16px 20px;font-size:13px;color:var(--text-dim);">
-        将模拟从今天到 ${dateStr} 的所有比赛
-      </div>
-      <div style="display:flex;gap:8px;padding:0 16px 16px;">
-        <button class="btn btn-sm" style="flex:1;background:var(--bg-card);color:var(--text);border:2px solid var(--border);border-radius:10px;" onclick="this.closest('.modal-overlay').remove()">取消</button>
-        <button class="btn btn-primary btn-sm" style="flex:1;border-radius:10px;" onclick="this.closest('.modal-overlay').remove();_simToDay(${targetDay})">确定</button>
-      </div>
-    </div>`;
-  modal.onclick = (e) => { if (e.target === modal) modal.remove(); };
-  document.body.appendChild(modal);
-}
-
-function _simToDay(targetDay) {
-  // ★ 批量进行中时禁止点击，防止重复计数
-  if (STATE._batchInProgress) return;
-  STATE._batchInProgress = true;
-  
-  const schedule = STATE.season.schedule;
-  const gamesToSim = schedule.filter(g => !g.simulated && g.day <= targetDay);
-  if (gamesToSim.length === 0) { STATE._batchInProgress = false; renderSeasonUI(); renderCalendar(); return; }
-  
-  // 显示进度指示
-  const controls = document.getElementById('season-controls');
-  if (controls) controls.innerHTML = '<div style="text-align:center;padding:8px;font-family:var(--font-display);font-size:13px;color:var(--orange);">⏳ 模拟中 <span id="sim-progress">0/' + gamesToSim.length + '</span></div>';
-  
-  let gameIdx = 0;
-  
-  function simNextGameInBatch() {
-    if (gameIdx >= gamesToSim.length) {
-      STATE._batchInProgress = false;
-      // 全部完成
-      if (!schedule.find(h => !h.simulated)) {
-        showEndOfSeason();
-      } else {
-        renderSeasonUI(); // 内含 renderCalendar()
-      }
-      return;
-    }
-    
-    const g = gamesToSim[gameIdx++];
-    
-    const result = simulateGameNew(STATE.careerTeam, g.opponent);
-    g.simulated = true;
-    g.result = result;
-    
-    if (result.won) STATE.season.wins++;
-    else STATE.season.losses++;
-    
-    const ourStanding = STATE.season.standings[STATE.careerTeam];
-    const oppStanding = STATE.season.standings[g.opponent];
-    if (ourStanding) {
-      if (result.won) ourStanding.wins++; else ourStanding.losses++;
-    }
-    if (oppStanding) {
-      if (result.won) oppStanding.losses++; else oppStanding.wins++;
-      updateStreak(g.opponent, !result.won);
-    }
-    updateStreak(STATE.careerTeam, result.won);
-    
-    const stats = generatePlayerStatsNew(STATE.attrs, result, false);
-    const ps = STATE.season.playerStats;
-    ps.pts += stats.pts; ps.reb += stats.reb; ps.ast += stats.ast;
-    ps.stl += stats.stl; ps.blk += stats.blk; ps.tov += stats.tov;
-    ps.fgm += stats.fgm; ps.fga += stats.fga;
-    ps.ftm += stats.ftm; ps.fta += stats.fta;
-    ps.threeM += stats.threeM; ps.threeA += stats.threeA;
-    ps.mins = (ps.mins || 0) + stats.mins;
-    ps.games++;
-    
-    STATE.season.games.push({ result, stats, game: g });
-    simDayLeagueGames(g.day);
-    
-    // ★ 实时更新：赛程表 + 进度
-    // 自动切换到当前比赛对应的月份
-    const curMonthIdx = SEASON_MONTHS.findIndex(m => g.day >= m.start && g.day <= m.end);
-    if (curMonthIdx >= 0) STATE._calendarMonth = curMonthIdx;
-    renderSeasonUI(); // 更新header + calendar
-    
-    const prog = document.getElementById('sim-progress');
-    if (prog) prog.textContent = gameIdx + '/' + gamesToSim.length;
-    
-    // 继续下一场（40ms延迟让UI能刷新）
-    setTimeout(simNextGameInBatch, 40);
-  }
-  
-  // simNextGameInBatch();
-}
-*/
 
 // ==================== Play-In 附加赛 ====================
 function renderPlayIn() {
@@ -9689,6 +9357,39 @@ function showPlayoffGamePopup(round, seriesIdx, gameIdx) {
 }
 
 // ==================== 赛季统一结果页 ====================
+/** 第六人赛季小结算：只在真的以替补身份打过球时才出现 */
+function buildSixthManSeasonSummary() {
+  var games = (STATE.season && STATE.season.games) || [];
+  var benchGames = [];
+  games.forEach(function(g) {
+    var st = g && g.stats;
+    if (st && st._sixthMan) benchGames.push(st);
+  });
+  if (!benchGames.length) return '';
+  var n = benchGames.length;
+  var sum = { pts:0, reb:0, ast:0, mins:0, pm:0 };
+  var best = benchGames[0];
+  benchGames.forEach(function(st) {
+    sum.pts += Number(st.pts) || 0;
+    sum.reb += Number(st.reb) || 0;
+    sum.ast += Number(st.ast) || 0;
+    sum.mins += Number(st.mins) || 0;
+    sum.pm += Number(st.plusMinus) || 0;
+    if ((Number(st.pts) || 0) > (Number(best.pts) || 0)) best = st;
+  });
+  var r1 = function(v) { return Math.round(v / n * 10) / 10; };
+  var wonAward = (STATE.season.awards || []).some(function(a) { return a && a.act === 'sixthman' && a.isUser; });
+  var h = '<div class="sr-section">';
+  h += '<div class="sr-section-title">🔥 第六人赛季</div>';
+  h += '<div class="sr-info-row"><span>替补出战</span><span>' + n + ' / ' + games.length + ' 场</span></div>';
+  h += '<div class="sr-info-row"><span>场均</span><span>' + r1(sum.mins) + ' 分钟 · ' + r1(sum.pts) + ' 分 ' + r1(sum.reb) + ' 板 ' + r1(sum.ast) + ' 助</span></div>';
+  h += '<div class="sr-info-row"><span>正负值</span><span>' + fmtPlusMinus(r1(sum.pm)) + '</span></div>';
+  h += '<div class="sr-info-row"><span>最高光</span><span>' + (Number(best.pts) || 0) + ' 分（' + (Number(best.mins) || 0) + ' 分钟）</span></div>';
+  if (wonAward) h += '<div class="sr-info-row"><span></span><span style="color:var(--orange);font-weight:700;">🏆 本赛季最佳第六人</span></div>';
+  h += '</div>';
+  return h;
+}
+
 function showSeasonResults() {
   trackEvent({act:"click",blk:"BMC098",pos:"TC13",label:"查看赛季总结"});
   // 安全检查：防止赛季未初始化时访问异常
@@ -9840,6 +9541,8 @@ function showSeasonResults() {
         </div>
         <div class="sr-pct-line">${plusMinusLine}投篮 ${avg.fgm}-${avg.fga} (${pct}%) · 三分 ${avg.threeM}-${avg.threeA} (${threePct}%) · 罚球 ${avg.ftm}-${avg.fta} (${ftPct}%)</div>
       </div>
+
+      ${buildSixthManSeasonSummary()}
 
       ${playoffStatsHtml}
 

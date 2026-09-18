@@ -286,4 +286,31 @@ check('本季高光同时收录三双与第六人代表作', () => {
   assert.ok(moments[1].note.indexOf('替补席') >= 0, moments[1].note);
 });
 
+check('第六人赛季小结算：只在以替补身份出战时出现', () => {
+  const src = [
+    extractFunction(html, 'fmtPlusMinus'),
+    extractFunction(html, 'buildSixthManSeasonSummary'),
+    'return { buildSixthManSeasonSummary:buildSixthManSeasonSummary };',
+  ].join('\n');
+  const run = (season) => new Function('STATE', src)({ season: season }).buildSixthManSeasonSummary();
+
+  assert.equal(run({ games: [{ stats: { pts: 20, mins: 30 } }], awards: [] }), '', '没有替补出场的比赛就不结算');
+
+  const out = run({
+    games: [
+      { stats: { pts: 20, reb: 5, ast: 4, mins: 30, plusMinus: 6 } },
+      { stats: { pts: 33, reb: 6, ast: 5, mins: 34, plusMinus: 12, _sixthMan: true } },
+      { stats: { pts: 18, reb: 4, ast: 7, mins: 22, plusMinus: 9, _sixthMan: true } },
+    ],
+    awards: [{ act: 'sixthman', isUser: true }],
+  });
+  assert.ok(out.indexOf('第六人赛季') >= 0, out);
+  assert.ok(out.indexOf('2 / 3 场') >= 0, '只统计替补出战的那两场：' + out);
+  assert.ok(out.indexOf('28 分钟') >= 0, '场均时间 (34+22)/2 = 28：' + out);
+  assert.ok(out.indexOf('25.5 分') >= 0, '场均得分 (33+18)/2 = 25.5：' + out);
+  assert.ok(out.indexOf('+10.5') >= 0, '场均正负值 (12+9)/2 = 10.5：' + out);
+  assert.ok(out.indexOf('33 分（34 分钟）') >= 0, '最高光的一场：' + out);
+  assert.ok(out.indexOf('本赛季最佳第六人') >= 0, out);
+});
+
 console.log('\n全部通过：' + passed + ' 项');
