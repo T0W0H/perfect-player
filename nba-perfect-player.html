@@ -1916,7 +1916,7 @@ function getPlayerHeadshotStyle(playerName, displaySize) {
 }
 </script>
 <script src="assets/js/hupu/script-01-2678-5hu3djrc-upload-1783494754597-12.js"></script>
-<script src="assets/js/current-player-ratings-2026.js"></script>
+<script src="assets/js/current-player-ratings-2026.js?v=20260919-rerating"></script>
 <script src="assets/js/hupu/script-02-2678-gd4jvxrc-upload-1783494754597-15.js"></script>
 <script src="assets/js/hupu/script-03-2678-456sfprc-upload-1783494754597-18.js"></script>
 <script src="assets/js/hupu/script-04-2678-mdo4zerc-upload-1783494754597-21.js"></script>
@@ -2936,16 +2936,16 @@ function renderLeftAttrs() {
       `;
     } else if (STATE.selectedPlayer) {
       const pv = parseInt(STATE.selectedPlayer[key]) || 50;
-      // 计算跨位置衰减后的值
+      // 跨位置衰减后的值；字母始终显示球员的真实评级，避免看起来像“数据没加载”
       const playerPos = getPlayerMainPos(STATE.selectedPlayer);
       const penalty = getPosPenalty(STATE.position, playerPos, key);
       const adjustedVal = Math.round(pv * penalty);
       const hasPenalty = penalty < 1.0;
-      const pg = getGrade(adjustedVal);
+      const rawGrade = getGrade(pv);
       div.innerHTML = `
         <span class="ba-label">${attrCN(key)}</span>
-        <span class="ba-grade" style="color:${pg.color}">${pg.letter}</span>
-        <span class="ba-owner"${hasPenalty ? ` style="color:var(--accent);font-size:9px;"` : ''}>${hasPenalty ? `${adjustedVal}▼` : adjustedVal}</span>
+        <span class="ba-grade" style="color:${rawGrade.color}">${rawGrade.letter}</span>
+        <span class="ba-owner"${hasPenalty ? ' style="color:var(--accent);font-size:9px;"' : ''}${hasPenalty ? ` title="原始 ${pv} × ${penalty.toFixed(2)}"` : ''}>${hasPenalty ? `${pv}→${adjustedVal}▼` : adjustedVal}</span>
       `;
     } else {
       div.innerHTML = `
@@ -3251,7 +3251,7 @@ function renderRosterPlayers(team, shown, allPool) {
   const hasAnyPenalty = shown.some(p => getPlayerMainPos(p) !== STATE.position);
   listHtml += `<div style="display:flex;gap:6px;padding:4px 0;flex-wrap:wrap;align-items:center;">
     <span style="font-size:9px;color:var(--text-dim);">
-      ${hasAnyPenalty ? '⚠️ 跨位置衰减生效' : '✅ 同位置属性无衰减'}
+      ${hasAnyPenalty ? '⚠️ 跨位置衰减：字母是球员真实评级，→ 后是你到手数值' : '✅ 同位置属性无衰减'}
     </span>
     <span style="font-size:10px;color:var(--accent);margin-left:auto;font-weight:600;">
       👆 选球员 → 点击左侧属性锁定
@@ -26533,12 +26533,21 @@ if (window._sdkReady && document.getElementById('career-area')) {
 <script>
 // 本地名单覆盖（可选）：由 tools/import_external_pool.mjs 生成到 assets/data/local/，
 // 该目录已在 .gitignore 中，公开站点不会请求也不会上传这份数据。
+// 这份文件只负责「谁在哪支队」，属性仍以 2025-26 校准数据为准：
+// 覆盖完成后重新跑一次校准，否则整队换人会把校准后的属性全部换回旧值。
 (function () {
   var host = (location && location.hostname) || '';
   if (/\.github\.io$/i.test(host)) return; // 公开站点跳过
   var s = document.createElement('script');
   s.src = 'assets/data/local/nba2k-data.local.js';
   s.onerror = function () {}; // 未安装本地名单时静默跳过
+  s.onload = function () {
+    try {
+      if (typeof window.applyCurrentPlayerRatings2026 === 'function') {
+        window.applyCurrentPlayerRatings2026();
+      }
+    } catch (e) {}
+  };
   document.head.appendChild(s);
 })();
 </script>

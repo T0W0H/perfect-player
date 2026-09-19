@@ -49,5 +49,10 @@ const NBA_CURRENT_RATINGS_2026_SAMPLES = {"ATL|Jalen Johnson":{"games":72,"minut
       player.ratingSampleMinutes = sample.minutes || 0;
     });
   });
-  if (typeof window !== 'undefined') window.NBA_CURRENT_RATINGS_2026_META = NBA_CURRENT_RATINGS_2026_META;
+  if (typeof window !== 'undefined') {
+    window.NBA_CURRENT_RATINGS_2026_META = NBA_CURRENT_RATINGS_2026_META;
+    // 本地名单覆盖（assets/data/local/）会整队换人，换完必须再跑一次本函数，
+    // 否则校准后的属性会被本地池的原始值冲掉。
+    window.applyCurrentPlayerRatings2026 = applyCurrentPlayerRatings2026;
+  }
 })();
