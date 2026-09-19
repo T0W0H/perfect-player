@@ -110,7 +110,8 @@ node tools/build_historical_rookie_pool.mjs
 1. `assets/js/hupu/script-01-*.js`：基础名单（30 队 / 525 人）。
 2. `assets/js/current-player-ratings-2026.js`：**唯一权威属性来源**。用 2025-26 真实赛季数据
    （per-game / advanced / shooting）换算成 13 项属性逐人覆盖，并标上 `ratingSeason` / `ratingBasis`。
-   重新生成：`node tools/update_current_player_ratings_2026.mjs`。
+   重新生成：`node tools/update_current_player_ratings_2026.mjs`，然后接着跑
+   `node tools/merge_2k_ratings.mjs`（借 2K 的护球/关键排序，见下节）。
 3. `assets/data/local/nba2k-data.local.js`（可选）：默认**不加载**，只有显式带上 `?localpool=1` 才生效。
    该文件与仓库自带名单的人员完全相同（实测 30 队 / 525 人 / 零差异），只会提供另一套属性，
    所以没必要让它参与启动顺序；真需要覆盖名单时再开参数。
@@ -126,30 +127,57 @@ node tools/build_historical_rookie_pool.mjs
 剧情 / 训练里写的属性键必须落到 13 项真实属性或 `ATTR_KEY_ALIAS`（STA 耐力 → 体能负荷、
 STL 抢断 → 运动），由 `tests/attribute-keys.test.js` 把关。
 
-## NBA 2K 属性对照（可选，本地）
+## NBA 2K 属性：只借了护球和关键的排序
 
-想拿另一套权威属性做参考或对比时：
+13 项属性里，护球（HAN）和关键（CLU）没有直接对应的统计口径，只能靠近似公式猜。
+2K 有对应分项，所以把这两项的**排序**借了过来，合进上面那份唯一评分文件：
 
 ```bash
-node tools/import_nba2k_ratings.mjs            # 只出对比报告（默认）
-node tools/import_nba2k_ratings.mjs --mode=blend  # 生成 50/50 混合覆盖
-node tools/import_nba2k_ratings.mjs --mode=2k     # 生成纯 2K 覆盖
+# 输入：assets/data/local/nba2k25_current.csv（本地，不进仓库）
+curl -sSL -o assets/data/local/nba2k25_current.csv \
+  https://raw.githubusercontent.com/ReinerJasin/NBA2k25_Web_Scraping/main/output/current_nba_players.csv
+
+node tools/merge_2k_ratings.mjs              # 合并（幂等，重复跑会被挡）
+node tools/merge_2k_ratings.mjs --dry-run    # 只出报告，不写文件
+node tools/merge_2k_ratings.mjs --only=HAN   # 单独验证某一项的收益
 ```
 
-数据来自 2K25 抓取数据集（`assets/data/local/nba2k25_current.csv`，仅本地，不进仓库），
-生成的文件同样是本地的，需要在地址后面加 `?ratings=2k` 才会加载。
+数据来自 2K25 抓取数据集（2kratings.com，经 [ReinerJasin/NBA2k25_Web_Scraping](https://github.com/ReinerJasin/NBA2k25_Web_Scraping) 的 MIT 脚本导出）。
 
-工具会输出两件事：
+**尺子不动，只换排序**。2K 的绝对值比我们低（护球 −8.2、传球 −6.8、篮板 −9.5），
+直接照抄会让全联盟的助攻/失误集体走样。所以做一次单调线性映射，把 2K 的分值对齐到
+我们原来的均值与标准差——排序听 2K 的，刻度保持原样。而且刻度是**按位置分别对齐**的：
+2K 对中锋的 ball_handle 天然给得低（中锋均值 46，后卫 79），全局对齐会把整个中锋群体
+的护球砍掉 11 分（约基奇 −14、恩比德 −21）。分位置对齐后，每个位置组的均值/标准差都不变。
 
-- **逐项均值对比**：2K 换算过来普遍比我们的数据低（篮板 −9.5、护球 −8.2、传球 −6.8），
-  因为两套数据不是同一个尺子：我们的值是按模拟器的产出去拟合的，2K 是人工调的。
-- **同位置组内的秩相关**（谁比谁强）：身体/防守/组织类高度一致（力量 0.88、传球 0.87、
-  扣篮 0.82、外防 0.79、内防 0.77、运动 0.75、盖帽 0.73、篮板 0.72），
-  偏差最大的是终结（0.38）、护球（0.44）、关键（0.47）——而这三项恰好是我们没有
-  直接真实数据、只能用近似公式推的，2K 反而有对应分项（close_shot / ball_handle / shot_iq）。
+**哪一项该借，用模拟结果说话**，而不是看排序好不好看：
 
-结论：不需要整套换成 2K，真正值得参考的就是这三个“没有直接数据”的属性；
-其余项我们的值已经和 2K 同序，而且是对着模拟器校准的。
+```bash
+node tools/validate_ratings_against_reality.mjs --compare=/tmp/ratings-head.js --n=60
+```
+
+这个工具把属性装进一个替身球员，交给游戏自己的 `generatePlayerStatsNew` 模拟，
+再和 Basketball Reference 的真实场均逐项比 MAE。因为替身球员永远被当成主力，
+**绝对值有系统性偏差，只有两版之间的差值有意义**（同一套引擎，偏差会互相抵消）。
+
+逐项验证结果（`--n=60`，负数 = 比原版更准）：
+
+| 借用的项 | 得分 | 篮板 | 助攻 | 失误 | 结论 |
+| --- | --- | --- | --- | --- | --- |
+| `--only=FIN` | +0.266 ✗ | — | — | — | 不采用 |
+| `--only=HAN` | +0.041 | — | −0.030 ✓ | — | 采用 |
+| `--only=CLU` | −0.140 ✓ | −0.017 ✓ | — | −0.016 ✓ | 采用 |
+| `--only=HAN,CLU` | −0.073 ✓ | −0.024 ✓ | −0.021 ✓ | −0.008 ✓ | **当前采用** |
+
+终结（FIN）被否掉了：2K 的 close_shot 对中锋给得特别高（戈贝尔 94、祖巴茨 93），
+而我们自己的公式已经用了真实篮下命中率 + 罚球率 + 篮下出手量，比 2K 更贴引擎。
+
+CLU 的换算里 `free_throw` 占 0.35 权重，这不是随便配的：引擎用 CLU 算罚球命中率
+（权重 0.50），只看 shot_iq/consistency 会让字母哥这种罚球差的球员 CLU 虚高到 99。
+加上 free_throw 后，CLU 与 2K 罚球的相关性从 0.26 提到 0.51，同时仍保住与 shot_iq 的 0.84。
+
+**重新生成属性的顺序**：`update_current_player_ratings_2026.mjs` 会整个重写评分文件，
+跑完必须再跑一次 `merge_2k_ratings.mjs`，否则 HAN / CLU 的 2K 形状会被冲掉。
 
 ## 本地导入外部名单（可选，不会上传）
 
