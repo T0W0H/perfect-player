@@ -103,6 +103,29 @@ node tools/build_historical_rookie_pool.mjs
 - 头像只引用 `assets/data/historical/headshots/` 里已存在的文件，不会产生碎图。
 - 抽不到有真实数据的球员时退回按总评生成，不会报错；名单文件加载失败时会退回旧的长尾名单。
 
+## 球员属性：数据从哪来、谁说了算
+
+同一份名单在启动时会被多次写入，顺序固定，每步只负责一件事：
+
+1. `assets/js/hupu/script-01-*.js`：基础名单（30 队 / 525 人）。
+2. `assets/js/current-player-ratings-2026.js`：**唯一权威属性来源**。用 2025-26 真实赛季数据
+   （per-game / advanced / shooting）换算成 13 项属性逐人覆盖，并标上 `ratingSeason` / `ratingBasis`。
+   重新生成：`node tools/update_current_player_ratings_2026.mjs`。
+3. `assets/data/local/nba2k-data.local.js`（可选）：默认**不加载**，只有显式带上 `?localpool=1` 才生效。
+   该文件与仓库自带名单的人员完全相同（实测 30 队 / 525 人 / 零差异），只会提供另一套属性，
+   所以没必要让它参与启动顺序；真需要覆盖名单时再开参数。
+4. 赛季推进中的写入：`applyDraftClass2026()` 注入 2026 届新人、`processDraft()` / `evolveLeague()`
+   注入未来新秀（含历史球员池）、`applyAnnualAttributeDrift()` 做年龄漂移。
+5. 玩家自己的 `STATE.attrs` 与联盟名单分离：手动加点封顶 99，软上界 120 只由后端事件/趋势使用。
+
+两张派生表不再写死，而是跟着当前名单实时计算：
+
+- `refreshPositionAverages()`：位置平均属性（跨位置衰减、相似球员匹配都用它）。
+- `getPosPenalty()`：跨位置衰减只扣掉六成的位置差距（系数 `POS_TRANSFER_DISCOUNT`）。
+
+剧情 / 训练里写的属性键必须落到 13 项真实属性或 `ATTR_KEY_ALIAS`（STA 耐力 → 体能负荷、
+STL 抢断 → 运动），由 `tests/attribute-keys.test.js` 把关。
+
 ## 本地导入外部名单（可选，不会上传）
 
 `tools/import_external_pool.mjs` 可以把 [BuildMyNBAPlayer](https://github.com/dandyzw/BuildMyNBAPlayer)（在线版 <https://icr3am.com/nba-game/>）的球员名单转换成本项目能直接读取的覆盖脚本。产物写入 `assets/data/local/`，该目录已在 `.gitignore` 中：**只在本机生效，公开站点不会请求、也不会提交到仓库**。

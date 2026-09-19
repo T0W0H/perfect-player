@@ -2537,12 +2537,47 @@ function getGrade(val) { return GRADE.getGrade(val); }
 function getOvrGrade(ovr) { return GRADE.getOvrGrade(ovr); }
 
 // ==================== 跨位置衰减 ====================
-/** 计算跨位置衰减系数：你建的位置 vs 来源球员位置 */
+// 同位置 1.0；不同位置按「两边位置平均属性的比值」打折。
+// 旧版把差距全额扣掉（96 篮板的后卫只剩 65），现在只扣六成（同一例子是 77）：
+// 中锋的篮板对后卫仍然不是白送的，但不会看起来像“数据没加载”。
+var POS_TRANSFER_DISCOUNT = 0.6;
 function getPosPenalty(userPos, srcPos, attrKey) {
+  if (!userPos || !srcPos || userPos === srcPos) return 1.0;
   const srcAvg = SIM_CONFIG.POS_AVG[srcPos] && SIM_CONFIG.POS_AVG[srcPos][attrKey];
   const userAvg = SIM_CONFIG.POS_AVG[userPos] && SIM_CONFIG.POS_AVG[userPos][attrKey];
   if (!srcAvg || srcAvg <= 0) return 1.0;
-  return Math.min(1.0, userAvg / srcAvg);
+  const ratio = Math.min(1.0, (Number(userAvg) || 0) / srcAvg);
+  return 1 - (1 - ratio) * POS_TRANSFER_DISCOUNT;
+}
+
+/**
+ * 位置平均属性：按当前联盟名单实时算，不再依赖写死的表。
+ * 名单经历过 2025-26 校准、2026 届新人注入、本地名单覆盖，写死的平均值很快就会和
+ * 实际数据走远（实测中锋篮板写死 77.0、实际 83.8），而跨位置衰减、球员相似度匹配
+ * 都以它为准，所以统一在开局和名单变更后重算一次。
+ */
+function refreshPositionAverages() {
+  if (typeof NBA2K_DATA === 'undefined' || typeof SIM_CONFIG === 'undefined' || !SIM_CONFIG.POS_AVG) return false;
+  const keys = SIM_CONFIG.ATTR_LIST || [];
+  const acc = {}, cnt = {};
+  Object.keys(NBA2K_DATA).forEach(function(team) {
+    const roster = NBA2K_DATA[team];
+    if (!Array.isArray(roster)) return; // 跳过 _draftClass2026Applied 这类标记
+    roster.forEach(function(p) {
+      const pos = String((p && p.pos) || 'SF').split('/')[0].trim();
+      if (!SIM_CONFIG.POS_AVG[pos]) return;
+      acc[pos] = acc[pos] || {};
+      cnt[pos] = (cnt[pos] || 0) + 1;
+      keys.forEach(function(k) { acc[pos][k] = (acc[pos][k] || 0) + (Number(p[k]) || 0); });
+    });
+  });
+  let updated = 0;
+  Object.keys(acc).forEach(function(pos) {
+    if (!cnt[pos]) return;
+    keys.forEach(function(k) { SIM_CONFIG.POS_AVG[pos][k] = Math.round(acc[pos][k] / cnt[pos] * 10) / 10; });
+    updated++;
+  });
+  return updated === 5;
 }
 
 /** 从球员的 pos 字段提取主位置（'PG / SG' → 'PG'） */
@@ -2649,6 +2684,7 @@ function createFreshCareer() {
 
 function initGame() {
   restoreBaseLeagueRoster();
+  refreshPositionAverages();   // 名单可能被校准/覆盖过，位置平均值跟着实际数据走
   _rngState = null;
   _rookieNameSeq = 0;
   // 重置状态（保留 gameId 持久不变，直到下一次显式重置）
@@ -3720,7 +3756,12 @@ var EVENT_CHOICE_BAD_WHEN_RAISED = {
 // 选项提示要短：能写数字就不写形容词，必须模糊时就用箭头
 var EVENT_CHOICE_PREVIEW_MAX = 22;
 function eventChoiceEffectLabel(key, isAttribute) {
-  if (isAttribute && typeof attrCN === 'function') return attrCN(key);
+  if (isAttribute) {
+    // STA / STL 这类没有独立属性的键，用剧情里的说法展示（后端落到赛季修正/运动）
+    var alias = (typeof ATTR_KEY_ALIAS !== 'undefined' && ATTR_KEY_ALIAS[key]) || null;
+    if (alias && alias.label) return alias.label;
+    if (typeof attrCN === 'function') return attrCN(key);
+  }
   return EVENT_CHOICE_PREDICTION_LABELS[key] || key;
 }
 
@@ -10336,9 +10377,31 @@ function clampAttrVal(v) {
   return Math.max(25, Math.min(ATTR_SOFT_CAP, Math.round(v)));
 }
 
+// ==================== 属性键别名 ====================
+// 剧情里会出现一些「没有独立模拟属性」的说法。以前 addAttrDelta 遇到 STA / STL 直接 return，
+// 选项写着“耐力+1”却什么都没发生。现在统一落到真实后端：
+//   STA 耐力 → 赛季修正 staminaLoad（体能负荷）：耐力变好 = 负荷下降，
+//              它会同时影响球队攻防、上场时间、老将保养与生涯长度
+//   STL 抢断 → 运动（ATH）：抢断没有独立属性，它由 外防×0.70 + 运动×0.20 + 护球×0.10 决定；
+//              防守专项的主项已经是外防了，次要收益落在运动上，不会把同一项加两遍
+var ATTR_KEY_ALIAS = {
+  STA: { label: '耐力', seasonMod: 'staminaLoad', modScale: -1 },
+  STL: { label: '抢断', attr: 'ATH' },
+};
+
 function addAttrDelta(key, delta) {
-  if (!ATTR_KEYS.includes(key)) return;
-  STATE.attrs[key] = clampAttrVal((STATE.attrs[key] || 50) + delta);
+  var amount = Number(delta) || 0;
+  if (ATTR_KEYS.includes(key)) {
+    STATE.attrs[key] = clampAttrVal((STATE.attrs[key] || 50) + amount);
+    return;
+  }
+  var alias = ATTR_KEY_ALIAS[key];
+  if (!alias) return; // 真不认识的键：忽略（tests/attribute-keys.test.js 会盯着）
+  if (alias.seasonMod) {
+    addSeasonMod(alias.seasonMod, (alias.modScale == null ? 1 : alias.modScale) * amount, -10, 10);
+  } else if (alias.attr) {
+    addAttrDelta(alias.attr, amount);
+  }
 }
 
 function getVeteranMaintenanceLevel(age) {
@@ -26840,21 +26903,23 @@ if (window._sdkReady && document.getElementById('career-area')) {
   else setTimeout(load, 2500);
 })();
 
-// 本地名单覆盖（可选）：由 tools/import_external_pool.mjs 生成到 assets/data/local/，
-// 该目录已在 .gitignore 中，公开站点不会请求也不会上传这份数据。
-// 这份文件只负责「谁在哪支队」，属性仍以 2025-26 校准数据为准：
-// 覆盖完成后重新跑一次校准，否则整队换人会把校准后的属性全部换回旧值。
+// 本地名单覆盖（可选）：现在只在你显式把 ?localpool=1 加在地址后面时才加载。
+// 原因：这份文件与仓库自带的名单**人员完全相同**（实测 30 队 / 525 人 / 零差异），
+// 它提供的只是另一套属性值，而属性已经由 2025-26 校准统一负责，
+// 加载它只会带来“整队换人 → 校准被冲掉”的顺序问题，所以默认不再加载。
+// 真正需要覆盖名单时（比如拿到了更新的人员名单）再用参数打开即可。
 (function () {
   var host = (location && location.hostname) || '';
-  if (/\.github\.io$/i.test(host)) return; // 公开站点跳过
+  if (/\.github\.io$/i.test(host)) return; // 公开站点永不加载
+  if (!/[?&]localpool=1\b/.test((location && location.search) || '')) return; // 默认跳过
   var s = document.createElement('script');
   s.src = 'assets/data/local/nba2k-data.local.js';
   s.onerror = function () {}; // 未安装本地名单时静默跳过
   s.onload = function () {
     try {
-      if (typeof window.applyCurrentPlayerRatings2026 === 'function') {
-        window.applyCurrentPlayerRatings2026();
-      }
+      // 覆盖来的只是名单，属性仍以 2025-26 校准为准
+      if (typeof window.applyCurrentPlayerRatings2026 === 'function') window.applyCurrentPlayerRatings2026();
+      if (typeof refreshPositionAverages === 'function') refreshPositionAverages();
     } catch (e) {}
   };
   document.head.appendChild(s);
