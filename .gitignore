@@ -8,6 +8,9 @@ output/
 # 本地导入的第三方名单数据（tools/import_external_pool.mjs 生成，勿提交）
 assets/data/local/
 
+# 批量重写前的备份（tools/remove_dead_functions.mjs 生成，确认无误后删掉）
+*.bak
+
 # 历史头像：仓库里只保留运行时真正引用的那批（已缩小到 192px）。
 # 其余原图属于工具素材，需要时用 python tools/fetch_historical_headshots.py 重新下载，不必提交。
 assets/data/historical/headshots/

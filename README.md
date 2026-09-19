@@ -95,9 +95,17 @@ node tools/find_dead_functions.mjs   # 定义了但没人调用的函数
 node tools/remove_dead_functions.mjs # 删死函数（默认 dry-run，--write 才真删）
 ```
 
-`remove_dead_functions.mjs` 有两道安全网，不过就不写文件：删完先跑一遍内联脚本
-语法检查，再对一下分节标题（`// ==== 段落名 ====`）的数量——**分节标题是多个测试的
-切片锚点**，少一个就会让一批测试找不到引擎切片。它也不会把分节标题当函数注释吃掉。
+`remove_dead_functions.mjs` 有三道闸，任何一道不过就不写文件：
+
+1. **工作区脏就拒跑**（`--allow-dirty` 可强制）。批量重写 + 未提交改动 = 出错时无法干净
+   回滚，只能在一堆手工修改和错误删除之间二选一，最后只能重做。先做一次检查点提交，
+   出问题就是一条 `git checkout` 的事。
+2. 写入前先存一份 `nba-perfect-player.html.bak`，并打出还原命令（该后缀已在 `.gitignore`）。
+3. 写入前跑内联脚本语法检查，再对一下分节标题数量——**分节标题是多个测试的切片锚点**，
+   少一个就会让一批测试找不到引擎切片。
+
+它也不会把分节标题当函数注释吃掉。统计引用时**会先去掉注释**：否则「说明某函数已废弃」
+的注释反而会把死函数救活（`renderGameCastNew`、`showRetirementModal` 就是这样漏过第一轮的）。
 
 已经清掉的：
 
@@ -105,7 +113,8 @@ node tools/remove_dead_functions.mjs # 删死函数（默认 dry-run，--write �
   `perfect-player.js`、`text-pools-extra.js`、`text-pools-long.js`、`perfect-player.css`）
 - `assets/js/hupu/script-04-*.js`（精灵图头像，6 个导出全是零引用，每次却要下载 27KB）
 - 47 个死函数（含 `showCareerHonors` 那份没人跳转的重复荣誉页、
-  `getOssClient` 里硬编码的第三方凭据）
+  `getOssClient` 里硬编码的第三方凭据），修掉注释误判后又补删 4 个
+  （`renderGameCastNew`、`showRetirementModal`、`af`、`isHiddenRetiredPlayer`）
 - `assets/data/names.json`（117KB 随机姓名库，新秀已改用真实历史球员）
 
 删死函数会把只被**测试**引用的函数也当成死的（比如 `getTripleChaseMoments`），

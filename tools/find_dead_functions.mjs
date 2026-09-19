@@ -43,6 +43,17 @@ EXTRA.forEach((rel) => {
   if (fs.existsSync(p)) corpus += '\n' + fs.readFileSync(p, 'utf8');
 });
 
+// 注释里的提及不算引用：否则「说明某函数已废弃」的注释反而会把死函数救活
+// （renderGameCastNew 就是这样被漏掉的，enhancements 里正好有一句注释提到它）。
+// 去掉整行注释、块注释，以及前面是空白的行尾注释（要求空白可避开 https:// 这类 URL）。
+function stripComments(text) {
+  return text
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/^[ \t]*\/\/.*$/gm, '')
+    .replace(/[ \t]\/\/[^"'`\n]*$/gm, '');
+}
+const searchCorpus = stripComments(corpus);
+
 // 所有声明的函数名
 const decls = new Map();
 const fnRe = /^\s*function\s+([A-Za-z_$][\w$]*)\s*\(/gm;
@@ -52,14 +63,14 @@ while ((m = fnRe.exec(html))) {
   if (!decls.has(name)) decls.set(name, { name, line: html.slice(0, m.index).split('\n').length, count: 0 });
 }
 
-// 统计每个名字在整个语料里的出现次数（含声明本身，所以 >= 2 才算被用到）
+// 统计每个名字在语料（已去注释）里的出现次数（含声明本身，所以 >= 2 才算被用到）
 decls.forEach((info, name) => {
   const re = new RegExp('(?<![\\w$])' + name.replace(/\$/g, '\\$') + '(?![\\w$])', 'g');
-  info.count = (corpus.match(re) || []).length;
+  info.count = (searchCorpus.match(re) || []).length;
   // 挂到 window / 显式导出 / 被 wrap 包装 的，都不算死
-  info.exported = new RegExp('window\\.' + name + '\\s*=').test(corpus)
-    || new RegExp("wrap\\(" + "'" + name + "'").test(corpus)
-    || new RegExp('globalThis\\.' + name + '\\s*=').test(corpus);
+  info.exported = new RegExp('window\\.' + name + '\\s*=').test(searchCorpus)
+    || new RegExp("wrap\\(" + "'" + name + "'").test(searchCorpus)
+    || new RegExp('globalThis\\.' + name + '\\s*=').test(searchCorpus);
 });
 
 const dead = [...decls.values()]

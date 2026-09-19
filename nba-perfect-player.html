@@ -6677,7 +6677,6 @@ function attrFactor(val) {
  *  35→0.08  50→0.24  65→0.43  78→0.65  90→0.83  99→1.00
  *  用在所有数据计算上，拉开一般和顶级的差距
  */
-function af(val) { return Math.pow(attrFactor(val), 1.5); }
 
 function getSeasonUsageBias() {
   if (!STATE.season) return 1;
@@ -7304,63 +7303,6 @@ function showEndOfSeason() {
 }
 
 // ==================== 新 GameCast ====================
-function renderGameCastNew(game, result, stats) {
-  const container = html('gamecast-area');
-  let castHtml = `<div class="gamecast">`;
-  
-  const qLabels = ['第一节', '第二节', '第三节', '第四节'];
-  const teamName = getTeamName(STATE.careerTeam);
-  const oppName = getTeamName(game.opponent);
-  
-  for (let q = 0; q < 4; q++) {
-    const qA = result.qScoresA?.[q] || Math.round(result.scoreA / 4);
-    const qB = result.qScoresB?.[q] || Math.round(result.scoreB / 4);
-    const cumA = result.qScoresA?.slice(0, q+1).reduce((a,b)=>a+b, 0) || Math.round(result.scoreA * (q+1) / 4);
-    const cumB = result.qScoresB?.slice(0, q+1).reduce((a,b)=>a+b, 0) || Math.round(result.scoreB * (q+1) / 4);
-    
-    castHtml += `<div class="gc-row ${q === 3 ? 'gc-final' : ''}">
-      <span class="gc-q">${qLabels[q]}</span>
-      <span class="gc-score ${cumA > cumB ? 'gc-winning' : 'gc-losing'}">${qA}-${qB}</span>
-      <span class="gc-total">(${cumA}-${cumB})</span>
-      ${q === 3 && stats ? `<span class="gc-stats">📊 ${stats.pts}分 ${stats.reb}板 ${stats.ast}助</span>` : ''}
-    </div>`;
-  }
-  
-  if (result.ot) {
-    castHtml += `<div class="gc-row gc-ot">
-      <span class="gc-q">加时</span>
-      <span class="gc-score">${result.scoreA - (result.qScoresA?.reduce((a,b)=>a+b,0) || 0)}-${result.scoreB - (result.qScoresB?.reduce((a,b)=>a+b,0) || 0)}</span>
-    </div>`;
-  }
-  
-  if (result.keyEvents && result.keyEvents.length > 0) {
-    castHtml += `<div class="gc-events">`;
-    result.keyEvents.forEach(e => {
-      castHtml += `<div class="gc-event">⚡ ${e}</div>`;
-    });
-    castHtml += `</div>`;
-  }
-  
-  // 你的球员表现
-  if (stats) {
-    const pct = stats.fga > 0 ? Math.round(stats.fgm / stats.fga * 100) : 0;
-    const threePct = stats.threeA > 0 ? Math.round(stats.threeM / stats.threeA * 100) : 0;
-    castHtml += `<div class="gc-player-line">
-      <span class="gc-player-name">我的球员</span>
-      <span>${stats.pts}分 / ${stats.reb}板 / ${stats.ast}助</span>
-      <span style="color:var(--text-dim);font-size:11px;">${stats.fgm}-${stats.fga} (${pct}%) / ${stats.threeM}-${stats.threeA} (${threePct}%) / ${stats.ftm}-${stats.fta}</span>
-    </div>`;
-  }
-  
-  castHtml += `<div class="gc-result ${result.won ? 'result-win' : 'result-loss'}">
-    ${result.won ? '✅ 胜利' : '❌ 失利'} · ${result.scoreA}-${result.scoreB}
-    <span style="font-size:12px;color:var(--text-dim);">${teamName} vs ${oppName}</span>
-  </div>`;
-  
-  castHtml += `</div>`;
-  container.innerHTML = castHtml;
-  container.scrollTop = container.scrollHeight;
-}
 
 // ==================== 赛季UI ====================
 
@@ -19558,44 +19500,9 @@ function refreshSeasonTeamHeader() {
 }
 
 // ==================== 休赛期弹窗（退役→交易→阵容预览）====================
-function isHiddenRetiredPlayer(r) {
-  return !!(r && (r.nameEN === 'Kyle Lowry' || r.name === '凯尔-洛瑞'));
-}
 
 function showOffSeasonModals() {
   showRosterReview();
-}
-
-function showRetirementModal(callback) {
-  var changes = STATE._leagueChanges || { retired: [] };
-  var retired = (changes.retired || []).filter(function(r) { return !isHiddenRetiredPlayer(r); });
-  var html = '<div class="team-picker-overlay" id="retirement-modal">';
-  html += '<div class="team-picker-modal">';
-  html += '<div class="team-picker-header"><span>📢 退役球员</span></div>';
-  html += '<div style="padding:8px 12px;max-height:60vh;overflow-y:auto;">';
-  retired.forEach(function(r) {
-    var teamCn = (typeof TEAM_NAMES_EV !== 'undefined' && TEAM_NAMES_EV[r.team]) ? TEAM_NAMES_EV[r.team] : r.team;
-    var hs = getPlayerHeadshotStyle(r.nameEN || r.playerName || r.name, 30);
-    var avatarHtml = hs
-      ? '<div class="bp-headshot" style="' + hs + ';width:30px;height:30px;border-radius:50%;border:2px solid var(--border);flex-shrink:0;"></div>'
-      : '<span style="color:var(--red);font-size:16px;">🔴</span>';
-    html += '<div style="display:flex;align-items:center;gap:6px;padding:5px 2px;border-bottom:1px solid var(--border-light);font-size:13px;">';
-    html += avatarHtml;
-    html += '<span style="flex:1;font-weight:600;">' + r.name + '</span>';
-    html += '<span style="color:var(--text-dim);font-size:11px;">' + teamCn + ' · ' + r.ovr + ' OVR</span>';
-    html += '</div>';
-  });
-  html += '</div>';
-  html += '<div style="padding:10px 12px 14px;text-align:center;border-top:1px solid var(--border-light);">';
-  html += '<button class="btn btn-primary btn-sm" onclick="closeRetirementModal(event, function(){})" style="max-width:180px;">下一步</button>';
-  html += '</div></div></div>';
-  var el = document.createElement('div');
-  el.innerHTML = html;
-  document.body.appendChild(el.firstElementChild);
-  document.getElementById('retirement-modal').querySelector('.btn-primary').onclick = function() {
-    document.getElementById('retirement-modal').remove();
-    if (callback) callback();
-  };
 }
 
 function showRosterReview() {
