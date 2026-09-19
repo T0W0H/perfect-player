@@ -26903,6 +26903,22 @@ if (window._sdkReady && document.getElementById('career-area')) {
   else setTimeout(load, 2500);
 })();
 
+// NBA 2K 属性覆盖（可选，本地）：地址带上 ?ratings=2k 才加载，默认不参与。
+// 生成方式见 tools/import_nba2k_ratings.mjs；导出的文件不进仓库。
+// 用途：想在 2K 属性下跑一跑、或者拿工具出的对比报告看两套数据的差异时用。
+(function () {
+  var host = (location && location.hostname) || '';
+  if (/\.github\.io$/i.test(host)) return; // 公开站点不加载
+  if (!/[?&]ratings=2k\b/.test((location && location.search) || '')) return; // 默认跳过
+  var s = document.createElement('script');
+  s.src = 'assets/data/local/nba2k-ratings.local.js';
+  s.onerror = function () {};
+  s.onload = function () {
+    try { if (typeof refreshPositionAverages === 'function') refreshPositionAverages(); } catch (e) {}
+  };
+  document.head.appendChild(s);
+})();
+
 // 本地名单覆盖（可选）：现在只在你显式把 ?localpool=1 加在地址后面时才加载。
 // 原因：这份文件与仓库自带的名单**人员完全相同**（实测 30 队 / 525 人 / 零差异），
 // 它提供的只是另一套属性值，而属性已经由 2025-26 校准统一负责，

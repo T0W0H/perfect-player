@@ -126,6 +126,31 @@ node tools/build_historical_rookie_pool.mjs
 剧情 / 训练里写的属性键必须落到 13 项真实属性或 `ATTR_KEY_ALIAS`（STA 耐力 → 体能负荷、
 STL 抢断 → 运动），由 `tests/attribute-keys.test.js` 把关。
 
+## NBA 2K 属性对照（可选，本地）
+
+想拿另一套权威属性做参考或对比时：
+
+```bash
+node tools/import_nba2k_ratings.mjs            # 只出对比报告（默认）
+node tools/import_nba2k_ratings.mjs --mode=blend  # 生成 50/50 混合覆盖
+node tools/import_nba2k_ratings.mjs --mode=2k     # 生成纯 2K 覆盖
+```
+
+数据来自 2K25 抓取数据集（`assets/data/local/nba2k25_current.csv`，仅本地，不进仓库），
+生成的文件同样是本地的，需要在地址后面加 `?ratings=2k` 才会加载。
+
+工具会输出两件事：
+
+- **逐项均值对比**：2K 换算过来普遍比我们的数据低（篮板 −9.5、护球 −8.2、传球 −6.8），
+  因为两套数据不是同一个尺子：我们的值是按模拟器的产出去拟合的，2K 是人工调的。
+- **同位置组内的秩相关**（谁比谁强）：身体/防守/组织类高度一致（力量 0.88、传球 0.87、
+  扣篮 0.82、外防 0.79、内防 0.77、运动 0.75、盖帽 0.73、篮板 0.72），
+  偏差最大的是终结（0.38）、护球（0.44）、关键（0.47）——而这三项恰好是我们没有
+  直接真实数据、只能用近似公式推的，2K 反而有对应分项（close_shot / ball_handle / shot_iq）。
+
+结论：不需要整套换成 2K，真正值得参考的就是这三个“没有直接数据”的属性；
+其余项我们的值已经和 2K 同序，而且是对着模拟器校准的。
+
 ## 本地导入外部名单（可选，不会上传）
 
 `tools/import_external_pool.mjs` 可以把 [BuildMyNBAPlayer](https://github.com/dandyzw/BuildMyNBAPlayer)（在线版 <https://icr3am.com/nba-game/>）的球员名单转换成本项目能直接读取的覆盖脚本。产物写入 `assets/data/local/`，该目录已在 `.gitignore` 中：**只在本机生效，公开站点不会请求、也不会提交到仓库**。
