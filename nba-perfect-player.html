@@ -17423,6 +17423,23 @@ var JERSEY_TEAM_COPY_FALLBACK = [
 
 ;
 
+// 全联盟共用的退役球衣说法：每支球队都能用（{team}/{city}/{years} 会按球队拼进去）。
+// 配合各队自己的专属版本一起抽，让耗时多年的仪式不容易重复。
+var JERSEY_TEAM_EXTRA_COPY = [
+    "{city}那天的风很大，{team}的球馆里却一点也不冷。{achievement}。你在{team}的 {years} 年，把客场和主场打成了同一种颜色。球衣升上去时，看台上的人开始数你的号码。",
+    "{team}把仪式排在赛季第一场，怕你等太久。{achievement}。{years} 年之后，这座球馆的屋顶终于有了一个可以抬头念出来的名字。",
+    "你回到{team}更衣室时，柜子上还贴着你的名字。{achievement}。{years} 年的汗味早就散了，但那个位置一直被留着。球衣升上去前，你先坐了一会儿。",
+    "主持人念了 {years} 年里的每一个队友名字，念到一半就有人开始哭。{achievement}。你接过话筒说：别哭，我们本来就是来赢球的。",
+    "{team}的球迷准备了一份礼物：{years} 年主场票根拼成的整幅看台。{achievement}。你说这比任何奖杯都重，因为那背后是很多个愿意花时间来看你的人。",
+    "仪式上放的不是你的高光集锦，而是你在{team}训练馆加练的模糊录像。{achievement}。全场看完了，没有配乐，也没有人说话。",
+    "你说：我在这座球馆学会的第一件事是防守，最后一件事是告别。{achievement}。{years} 年，从{team}开始，也从这里收尾。",
+    "{team}的老球童把当年替你要的签名球还给你：该还了。{achievement}。你把它推回去：留着吧，下次带你儿子来看屋顶。",
+    "球衣升到一半停了一下，全场屏住呼吸，然后它继续往上。{achievement}。你说：连它都舍不得走。{years} 年的日子，跟着它一起上去了。",
+    "{city}的球迷在球馆外排了两条街。{achievement}。{team}的安保没有拦，只是把护栏往外挪了挪——他们知道这些人不是来看球的，是来送人的。",
+    "你的号码升上去之后，{team}的年轻球员集体起立鼓掌。{achievement}。教练后来告诉他们：{years} 年，就是做到这个程度。",
+    "最后你对着话筒只说了一句：谢谢你们把 {years} 年借给我。{achievement}。{team}的灯依次熄灭，只剩屋顶那件球衣还亮着。",
+];
+
 function buildJerseyAchievement(info) {
   info = info || {};
   var team = getTeamName(info.team);
@@ -17458,13 +17475,9 @@ function buildJerseyAchievement(info) {
 
 function buildJerseyCeremonyCopy(info) {
   var team = info.team;
-  var pool = JERSEY_TEAM_COPY[team] || JERSEY_TEAM_COPY_FALLBACK;
-  var idx = 0;
-  if (Array.isArray(pool)) {
-    idx = typeof info.copyVariant === 'number' ? (info.copyVariant % pool.length) : Math.floor(Math.random() * pool.length);
-  } else {
-    pool = [pool];
-  }
+  var base = JERSEY_TEAM_COPY[team] || JERSEY_TEAM_COPY_FALLBACK;
+  var pool = (Array.isArray(base) ? base : [base]).concat(JERSEY_TEAM_EXTRA_COPY);
+  var idx = typeof info.copyVariant === 'number' ? (info.copyVariant % pool.length) : Math.floor(Math.random() * pool.length);
   var tpl = pool[idx] || pool[0];
   var vars = {
     team: getTeamName(team),
@@ -17483,6 +17496,18 @@ function buildJerseyCeremonyCopy(info) {
 
 // ── 名人堂：30 条入选 + 20 条未入选，围绕生涯经历客制化 ──
 var HOF_COPY = [
+    "斯普林菲尔德的走廊里挂着历代名宿的照片。你走过时，工作人员小声说：下一张是你。{achievement}。从{firstTeam}到{lastTeam}，你从没想过会被挂在墙上，只是想打好每一场。",
+    "名人堂的通知是一封信，不是电话。你说这样更好，可以留着。{achievement}。你把信折好放进钱包，第二天照旧去了训练馆——习惯比荣誉更难改。",
+    "入选那晚，你给启蒙教练打了电话。他先哭，后笑，最后说：我早就知道。{achievement}。{longestTeam}的 {longestYears} 年只是履历的一部分，真正让你进这间厅的，是最早那些没人看的日子。",
+    "有人问你进名人堂最想感谢谁。你想了很久，说：那些在我打不好时还来看球的人。{achievement}。台下有人举着你新秀赛季的旧照片，边缘已经卷了。",
+    "玻璃厅的灯亮起来时，你想起自己第一次进联盟的样子：行李很少，话也很少。{achievement}。{teamCount} 支球队之后，行李变多了，话还是不多，但每个字都有人听。",
+    "你带着家人走进名人堂，孩子指着展柜问：这里会放你的东西吗？你说：会有一件球衣。{achievement}。{longestYears} 年在{longestTeam}，那件球衣洗过很多次，也该歇一歇了。",
+    "演讲稿你改了七遍，最后还是只留三句：谢谢球队，谢谢球迷，谢谢那个不肯停下来的自己。{achievement}。",
+    "名人堂的评委说，你的价值不只在数据。你点了头，因为你确实把很多夜晚用来做数据看不到的事。{achievement}。",
+    "入堂那天，{firstTeam}的老队友们全来了，坐在同一排。{achievement}。你们没有多说，只是在合影时像当年一样把手搭在彼此肩上。",
+    "有人统计你生涯跑过的距离，数字大得不像真的。你笑了：那都是被追着跑出来的。{achievement}。现在没人追你了，你反而有点想念那种喘不上气的感觉。",
+    "你说过一句被反复引用的话：荣誉是别人给的，手感是自己找的。{achievement}。今天荣誉终于给到最重的那一件，而你早已不需要它来证明手感。",
+    "走进名人堂前，你把手机交给了家人。你说今天不想看任何评论。{achievement}。你想记住的只是那扇门推开时的声音。",
     "斯普林菲尔德的名人堂玻璃厅里，灯光比想象中更亮。{achievement}。你穿过 {teamCount} 支球队的球衣，在{longestTeam}留下过最长的 {longestYears} 年。那些训练馆、客场航班、伤病名单和抢七夜晚，终于被压缩成一句话：欢迎进入篮球名人堂。",
     "名人堂公布名单那天，你的名字出现在最后一行。镜头切到你时，你没有立刻笑，只是低头揉了揉眼睛。{achievement}。从{firstTeam}到{lastTeam}，你的故事被一座又一座城市接力保存。有人问你这辈子值不值，你想起的却是每一次还没投进的球。",
     "{achievement}。你打过 {teamCount} 支球队，把最好的 {longestYears} 年留给了{longestTeam}。篮球名人堂的钥匙很轻，握在手里却像一座城的分量。名单念到你名字的那一刻，过去所有沉默的夜晚都替你开口了。",
@@ -17598,12 +17623,21 @@ var HOF_COPY = [
     "名人堂公布名单那天，你正在教小女儿骑自行车。她摔倒了，你扶她起来，说：再来。{achievement}。后来你告诉她，爸爸今天也进了一个很大很大的门。",
     "你入选名人堂，却没有参加任何庆祝活动。{achievement}。你说：我把庆祝留到{firstTeam}重建完成那天。那天，我会回去，和他们一起看新球馆的第一场比赛。",
     "名人堂的灯照在你身上时，你想起的不是任何一场胜利，而是{firstTeam}那个普通训练日的黄昏。{achievement}。你说：从那个黄昏走到今天，我走了{seasonsCount} 年。",
-    "你入选名人堂那天，只说了一句话：这下，我可以告诉当年那个孩子，他没有白练。{achievement}。台下的人都笑了，然后都站起来，把掌声送给了那个还在孩子气里的你。",
 ];
 
 ;
 
 var HOF_FAIL_COPY = [
+    "你没有被选上，但那年冬天你还是去了斯普林菲尔德，排队参观，站在别人的展柜前看了很久。{achievement}。你出来时说：做得挺好，只是主角不是我。",
+    "落选之后，你接到的第一个电话来自{longestTeam}的装备经理。他只说：你的柜子我留着。{achievement}。你在电话这头笑了一下：别留太久，会有新人来的。",
+    "有人替你鸣不平，你说别吵了，我们打过好球，这就够了。{achievement}。{teamCount} 座城市里，那些人记得的从来不是你入不入堂。",
+    "你把落选的消息告诉了孩子。他问：那算什么？你说：算一段很好的人生，只是没有奖杯。{achievement}。",
+    "名人堂投票那天，你在{firstTeam}的旧球馆里投篮。空旷的看台没有声音，球进网的声音反而更清楚。{achievement}。你想：这个声音我听了 {games} 场，值了。",
+    "你和几个老队友吃饭，谁都没提投票。散场时有人举起杯子说：敬我们没赢到的那些年。{achievement}。你们一口喝完，各自回家。",
+    "落选名单公布后，一家体育媒体做了一期专题，标题是《他该有一席》。你看了，转发了一次。{achievement}。这是你第一次为自己的历史地位说话。",
+    "你在社区球馆遇到一个穿你球衣的小孩。他问：你进名人堂了吗？你说没有。他说：那我把我的奖状给你。{achievement}。你把那张奖状装进了相框。",
+    "有人把落选的原因归结为时代。你说：时代没欠我，我也没欠时代。{achievement}。{points} 分和 {games} 场都在那儿，谁想看都能看。",
+    "多年以后，名人堂回顾展找到你，想借你的一件球衣。你翻出{lastTeam}那件，说：要洗一下再给。{achievement}。工作人员说不必，手汗的味道也是历史。",
     "名人堂投票结果公布，你的名字没有出现在名单里。评论员说你差一点历史重量，可你关掉电视时，信箱里还堆着球迷寄来的信。{achievement}。你没有被写进那面墙，但已经写进很多人的青春。",
     "这一年的名人堂名单里没有你。你安静地接受了这个答案，第二天照常去训练馆。{achievement}。从{firstTeam}到{lastTeam}，{teamCount} 座城市都见证过你的认真。历史有时慢一点，但那些和你一起走过夜晚的人，从不需要投票。",
     "名人堂的门暂时没有为你打开。你放下手机，看见窗外还有人在球场上练习你的动作。{achievement}。不是所有传奇都需要一座玻璃厅来证明。你把 {longestYears} 年留给了{longestTeam}，把名字留给了每一个主场。",
@@ -18221,6 +18255,16 @@ function startLegacyRankClimb() {
 
 // ── GOAT 退役发布会：8 条专属文案 ──
 var GOAT_COPY = [
+    "记者问你，{mvp} 次MVP里哪一次最难。你说：都难，因为每一次都有人正等着我掉下来。{achievement}。{points} 分不是天赋堆出来的，是 {seasonsCount} 年里每天早上六点的选择。",
+    "有人把 GOAT 之争的投票结果念给你听，你听完只说：那是个好问题，可惜我已经不用回答了。{achievement}。第 {games} 场之后，{lastTeam}的球迷站起来鼓掌，他们知道自己在看什么。",
+    "你说自己记得每一个客场更衣室的味道。{achievement}。{seasonsCount} 个赛季里，你把 {teamCount} 座城市变成了半个主场，最后连对手的球迷都不想嘘你。",
+    "退役这天，{longestTeam}把 {seasonsCount} 年的旧票根铺在球馆走廊上。{achievement}。你一路走进去，没说什么，因为每张票根上都写着同一件事：这个人值得。",
+    "记者问：{championships} 座总冠军之外，你还想要什么？你说：想再看一次凌晨训练馆的灯。{achievement}。{points} 分之后，你最想念的竟是最枯燥的那部分。",
+    "你说：如果重来一次，我还是会选同一条路，只是会少生几次自己的气。{achievement}。{games} 场比赛之后，你终于和那个总在加练的年轻人握了手。",
+    "发布会前，你在通道里遇见了当年的球探。他老了很多，先开口：当年我没看错。{achievement}。你回了一句：谢谢你那天没走开。",
+    "你说：别把我放到神龛上，我只是把一件很难的事做了很多年。{achievement}。{longestTeam}的 {seasonsCount} 年，把“坚持”从口号变成了能数出来的 {points} 分。",
+    "有人问，{fmvp} 次总决赛MVP里哪一次最疼。你说：每年六月都疼，但疼完了就有戒指。{achievement}。台下笑了，笑声里全是敬意。",
+    "你把最后一场的球鞋送给了球馆的清洁工。{achievement}。你说：他比我更早到、更晚走，这双鞋应该归他。{seasonsCount} 年的故事，就这样安静地收尾。",
     "你坐到话筒前，还没有开口，{longestTeam}的球馆已经先响了一遍掌声。{achievement}。记者问你想对历史说什么，你说：历史不用我说，它自己会记得。{seasonsCount} 个赛季、{games} 场比赛、{points} 分，今天终于可以交给后人去争论了。",
     "发布会第一句话，你说：我从不觉得自己在追赶谁。{achievement}。你停了一下：我只是把我能拿的都拿了。台下安静了两秒，然后欢呼声盖过了所有问题。{longestTeam}的{seasonsCount} 个赛季，成了这座城市最骄傲的注脚。",
     "有人问，GOAT 这个词重不重。你说：重，但我背了 {seasonsCount} 年。{achievement}。{teamCount} 支球队见证过你，{games} 场比赛衡量过你，{points} 分最终替你回答了所有质疑。",
