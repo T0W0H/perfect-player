@@ -2408,7 +2408,8 @@ const STATE = {
 //   LOYALTY_BONUS            留守奖励（开季默契 / 交易保护 / 续约率 / 训练点）
 //   TEAM_RELATION_RETENTION  换队后教练信任与更衣室信任的保留比例
 //   TRAINING_POINT_SCALE     休赛期训练点数整体缩放
-//   AWARD_STREAK_MUL         奖项连庄衰减倍率（MVP 票数 / DPOY 评分）
+//   AWARD_STREAK_MUL         奖项连庄衰减倍率（MVP 票数 / DPOY 与防守阵容评分）
+//   DEF_TEAM_BLEND           最佳防守阵容的“抢断+盖帽”浮动（与 DPOY 共用一把尺）
 //   CAREER_STORY_NOTES       生涯注脚文案（剧情选择 → 退役评价）
 
 // ==================== UI 工具 ====================
@@ -5163,6 +5164,10 @@ var AWARD_STREAK_MUL = {
   score:   [1, 0.75, 0.45, 0.3, 0.2], // DPOY 等评分倍率
 };
 
+// 最佳防守阵容与 DPOY 共用一把尺：属性分打底，再用「本赛季抢断+盖帽」上下浮动。
+// 2.6 ≈ 联盟平均的抢断+盖帽，每高出 1 次给 12 分（相当于把顶级防守产出折算成属性分）。
+var DEF_TEAM_BLEND = { statBaseline: 2.6, statWeight: 12 };
+
 function awardStreakMul(kind, streak) {
   var arr = AWARD_STREAK_MUL[kind] || AWARD_STREAK_MUL.score;
   var i = Math.max(0, Math.min(arr.length - 1, Math.floor(Number(streak) || 0)));
@@ -5868,6 +5873,8 @@ function calcSeasonAwards() {
   })();
 
   // ==================== 最佳防守阵容 ====================
+  // 与 DPOY 同一套评价：属性分 × 出场角色，再叠上本赛季的抢断+盖帽产出。
+  // 两条确定性规则：1) 用户拿到 DPOY 必定入选一防；2) NPC 拿到 DPOY 也必定在名单里。
   (function() {
     var defenders = [];
     for (var _t = 0; _t < NBA2K_TEAMS.length; _t++) {
@@ -5880,17 +5887,27 @@ function calcSeasonAwards() {
           name: p.cname || p.name,
           playerName: p.name || '',
           team: NBA2K_TEAMS[_t],
-          score: (((parseInt(p.PDEF) || 60) * 0.5) + ((parseInt(p.IDEF) || 60) * 0.5) + ((parseInt(p.BLK) || 50) * 0.8) + ((parseInt(p.ovr) || 70) * 0.3)) * npcRoleScale(NBA2K_TEAMS[_t], p),
+          score: (((parseInt(p.PDEF) || 60) * 0.5) + ((parseInt(p.IDEF) || 60) * 0.5) + ((parseInt(p.BLK) || 50) * 0.8) + ((parseInt(p.ovr) || 70) * 0.3))
+            * npcRoleScale(NBA2K_TEAMS[_t], p)
+            * awardStreakMul('score', getPlayerAwardStreak(p, 'dpoy')), // 连庄平滑降权（与 DPOY 同步）
         });
       }
     }
     defenders.sort(function(a, b) { return b.score - a.score; });
     var selectedDef = defenders.slice(0, 5);
     var userDefScore = ((parseInt(STATE.attrs.PDEF) || 60) * 0.5) + ((parseInt(STATE.attrs.IDEF) || 60) * 0.5) + ((parseInt(STATE.attrs.BLK) || 50) * 0.8) + ((parseInt(STATE.finalOVR) || 70) * 0.3);
+    // 本赛季的抢断+盖帽产出：老存档没有这两项场均数据时退回纯属性分
+    var hasDefStats = isFinite(Number(avg.stl)) && isFinite(Number(avg.blk));
+    if (hasDefStats) {
+      userDefScore += ((Number(avg.stl) || 0) + (Number(avg.blk) || 0) - DEF_TEAM_BLEND.statBaseline) * DEF_TEAM_BLEND.statWeight;
+    }
     var defGamesEnough = g >= 58;
     var betterDef = 0;
     for (var _d = 0; _d < defenders.length; _d++) { if (defenders[_d].score > userDefScore) betterDef++; }
-    var userInDef = defGamesEnough && betterDef <= 4 && defenders.length >= 5;
+    var dpoyAwardDef = null;
+    (STATE.season.awards || []).forEach(function(a) { if (a && a.act === 'dpoy') dpoyAwardDef = a; });
+    var userWonDpoy = !!(dpoyAwardDef && dpoyAwardDef.isUser);
+    var userInDef = defGamesEnough && (userWonDpoy || (betterDef <= 4 && defenders.length >= 5));
     var userDefRank;
     if (!defGamesEnough) userDefRank = '出勤不足';
     else if (userInDef) userDefRank = '🥇 入选最佳防守阵容';
@@ -5898,8 +5915,18 @@ function calcSeasonAwards() {
     else userDefRank = '未入选';
     if (userInDef) {
       // 按真实名次插入，再把多出来的人挤掉，保证名单顺序正确
-      selectedDef.splice(betterDef, 0, { name: getHupuDisplayName(), playerName: '', isUser: true });
+      selectedDef.splice(userWonDpoy ? 0 : Math.min(betterDef, 4), 0, { name: getHupuDisplayName(), playerName: '', isUser: true });
       selectedDef = selectedDef.slice(0, 5);
+    } else if (dpoyAwardDef && dpoyAwardDef.winnerEN) {
+      var dpoyEn = String(dpoyAwardDef.winnerEN);
+      for (var _pd = 0; _pd < defenders.length; _pd++) {
+        if (defenders[_pd].playerName !== dpoyEn) continue;
+        var dpoyEntry = defenders[_pd];
+        selectedDef = selectedDef.filter(function(x) { return x.playerName !== dpoyEn; });
+        selectedDef.unshift(dpoyEntry);
+        selectedDef = selectedDef.slice(0, 5);
+        break;
+      }
     }
     var defNames = selectedDef.map(function(x) { return x.name; });
     var defEnNames = selectedDef.map(function(x) { return x.playerName || ''; });
