@@ -20303,8 +20303,13 @@ function processDraft() {
 
     var rookie = generateRookie();
     var targetOvr = ovrRange.min + Math.floor(rngNext() * (ovrRange.max - ovrRange.min + 1));
-    rookie.ovr = targetOvr;
-    attrKeys.forEach(function(k) { rookie[k] = Math.max(25, Math.min(99, targetOvr + Math.floor(rngNext() * 16) - 8)); });
+    if (rookie._rebirth) {
+      // 历史球员转世：按真实生涯评分落地，不被顺位拉平（不然转世的乔丹可能只有 70）
+      attrKeys.forEach(function(k) { if (rookie[k] == null) rookie[k] = rookie.ovr; });
+    } else {
+      rookie.ovr = targetOvr;
+      attrKeys.forEach(function(k) { rookie[k] = Math.max(25, Math.min(99, targetOvr + Math.floor(rngNext() * 16) - 8)); });
+    }
     // 新秀合同
     if (idx < 5) rookie.contract = 3 + Math.floor(rngNext() * 2);
     else if (idx < 14) rookie.contract = 2 + Math.floor(rngNext() * 3);
@@ -20915,6 +20920,10 @@ var ROOKIE_NAMES = [
   { en: "Jason Asemota", cn: "杰森-阿塞莫塔" },
 ];
 
+// 只为兜底而保留：正常游玩时未来赛季的新秀都会走「历史球员池」，
+// 只有在历史名单文件尚未加载完成（或已全部抽完）时才会用到这份名单。
+var ROOKIE_FALLBACK_NAMES = ROOKIE_NAMES.map(function(x, i) { return { en: x.en, cn: x.cn, pick: i + 1 }; });
+
 var DRAFT_CLASS_2027 = [
   { pick: 1, en: "Jordan Smith Jr.", cn: "乔丹-史密斯二世" },
   { pick: 2, en: "Tyran Stokes", cn: "泰兰-斯托克斯" },
@@ -21033,6 +21042,7 @@ var _rngState = null;
 var _rookieNameSeq = 0;
 var _starRookieKeys = {};
 var _rookiePortraitQueue = [];
+var ROOKIE_POS_HEIGHT = { PG: "6'2'", SG: "6'5'", SF: "6'7'", PF: "6'9'", C: "6'11'" };
 
 function rngReset() {
   var seed = 0;
@@ -21073,19 +21083,93 @@ function nextGeneratedRookiePortrait() {
 
 Math.random = rngNext;
 STAR_ROOKIES.forEach(function(s) { _starRookieKeys[s.en] = true; });
+// 2027 届之后的选秀前景名单，只保留真实预期的未来新秀；长尾改用历史球员池
 var ROOKIE_CANDIDATES = DRAFT_CLASS_2027
-  .concat(ROOKIE_NAMES.map(function(x, i) { return { en: x.en, cn: x.cn, pick: i + 1 }; }))
   .filter(function(x) { return !_starRookieKeys[x.en]; });
+
+/* ==================== 历史球员新秀池 ====================
+ * 2027 届用完之后，未来赛季的新秀改用真实历史球员（1947-2026 共 80 届选秀），
+ * 属性按真实生涯统计生成（篮板怪真的是篮板怪），不再用匿名名单凑数。
+ * 数据文件 232 KB，按需（idle）加载，不拖首屏。 */
+var _historicalRookieRows = null;
+var _historicalFeaturedCount = 0;
+
+function registerHistoricalRookiePool(data) {
+  if (!data || !Array.isArray(data.rows) || !data.rows.length) return false;
+  _historicalRookieRows = data.rows;
+  _historicalFeaturedCount = Number(data.featuredRows) || 0;
+  return true;
+}
+window.registerHistoricalRookiePool = registerHistoricalRookiePool;
+
+/** 抽一名还没出现过的历史球员；「有头有脸」的（名人堂级或真有头像）占六成 */
+function pickHistoricalRookieRow() {
+  var rows = _historicalRookieRows;
+  if (!rows || !rows.length) return null;
+  var featured = [], rest = [];
+  for (var i = 0; i < rows.length; i++) {
+    var row = rows[i];
+    if (_usedRookieCandidateNames[row[1]]) continue;
+    (row[8] ? featured : rest).push(row);
+  }
+  var pool = (featured.length && (rest.length === 0 || rngNext() < 0.6)) ? featured : (rest.length ? rest : featured);
+  if (!pool.length) return null; // 全用过了：本轮不再出历史球员，交给兜底名单
+  return pool[Math.floor(rngNext() * pool.length)];
+}
+
+function applyHistoricalRookieDeltas(player, deltas, ovr) {
+  var keys = (window.PERFECT_PLAYER_HISTORICAL_ROOKIES && window.PERFECT_PLAYER_HISTORICAL_ROOKIES.deltaKeys) ||
+    ['REB', 'PAS', 'BLK', 'PDEF', 'threePT', 'FIN'];
+  if (!Array.isArray(deltas)) return false;
+  keys.forEach(function(k, i) { player[k] = deltas[i] || 0; });
+  return true;
+}
 
 function generateRookie() {
   var allPos = ['PG','SG','SF','PF','C'];
   var pos = allPos[Math.floor(rngNext() * allPos.length)];
   var available = ROOKIE_CANDIDATES.filter(function(x) { return !_usedRookieCandidateNames[x.en]; });
-  if (available.length === 0) available = ROOKIE_CANDIDATES;
-  var pick = _starRookieQueue.length > 0
-    ? _starRookieQueue.shift()
-    : available[Math.floor(rngNext() * available.length)];
+  var pick = null;
+  var historyRow = null;
+  if (_starRookieQueue.length > 0) {
+    pick = _starRookieQueue.shift();
+  } else if (available.length) {
+    pick = available[Math.floor(rngNext() * available.length)];
+  } else {
+    historyRow = pickHistoricalRookieRow();
+    if (!historyRow) {
+      // 历史名单文件还没加载好（或全用完了）：用旧的长尾名单兜底，不报错也不留空
+      pick = ROOKIE_FALLBACK_NAMES[Math.floor(rngNext() * ROOKIE_FALLBACK_NAMES.length)];
+    }
+  }
   if (pick && pick.en) _usedRookieCandidateNames[pick.en] = true;
+
+  if (historyRow) {
+    _usedRookieCandidateNames[historyRow[1]] = true;
+    var hPos = allPos[(Number(historyRow[2]) || 3) - 1] || pos;
+    var hOvr = Number(historyRow[5]) || draftOvrByPick(historyRow[3] || 99);
+    var h = {
+      name: 'Rookie_' + (++_rookieNameSeq),
+      nameEN: historyRow[1],
+      cname: historyRow[0],
+      pos: hPos, height: ROOKIE_POS_HEIGHT[hPos] || '6\'7"', type: '新秀', ovr: hOvr,
+      _age: 19 + Math.floor(rngNext() * 3),
+      _enterYear: 2026 + ((STATE.career && STATE.career.seasonCount) || 0),
+      _rebirth: { year: Number(historyRow[4]) || 0, pick: Number(historyRow[3]) || 0 },
+      photoLocal: historyRow[6] ? ('assets/data/historical/headshots/' + historyRow[6]) : nextGeneratedRookiePortrait(),
+      photoStatus: 'cached',
+      photoSource: historyRow[6] ? 'historical-rookie-headshot' : 'generated-rookie-pool',
+    };
+    var hKeys = SIM_CONFIG.ATTR_LIST || ['threePT','MID','FIN','DNK','HAN','PAS','PDEF','IDEF','BLK','REB','ATH','STR','CLU'];
+    var shaped = applyHistoricalRookieDeltas(h, historyRow[7], hOvr);
+    hKeys.forEach(function(k) {
+      // 有真实数据的：以总评为底 + 真实偏移；没有的：小幅抖动，不抢球队的活
+      var base = shaped && h[k] !== undefined ? h[k] : (rngNext() * 10 - 5);
+      h[k] = Math.max(25, Math.min(99, Math.round(hOvr + base)));
+    });
+    return h;
+  }
+
   var ovr = pick.ovr || draftOvrByPick(pick.pick || 99); // 六位明星新秀先被抽出且 85 总评，其余按顺位分层
   var p = {
     name: 'Rookie_' + (++_rookieNameSeq),
@@ -26686,6 +26770,32 @@ if (window._sdkReady && document.getElementById('career-area')) {
 <script src="assets/js/perfect-player-hupu-extensions.js?v=20260810-career-state-effects"></script>
 <script src="assets/js/perfect-player-enhancements.js?v=20260809-achievement-rules-v2"></script>
 <script>
+// 历史球员新秀池：未来赛季的新秀改用真实历史球员（232 KB，按需加载）。
+// 加载好之前新秀会先用兜底名单，加载完自动切换，不需要玩家做任何事。
+(function () {
+  function load() {
+    if (window.PERFECT_PLAYER_HISTORICAL_ROOKIES) {
+      if (typeof window.registerHistoricalRookiePool === 'function') window.registerHistoricalRookiePool(window.PERFECT_PLAYER_HISTORICAL_ROOKIES);
+      return;
+    }
+    var s = document.createElement('script');
+    s.src = 'assets/js/historical-rookie-pool.js?v=20260919';
+    s.async = true;
+    s.onerror = function () {}; // 文件缺失时静默回退到兜底名单
+    s.onload = function () {
+      try {
+        if (typeof window.registerHistoricalRookiePool === 'function' && window.PERFECT_PLAYER_HISTORICAL_ROOKIES) {
+          window.registerHistoricalRookiePool(window.PERFECT_PLAYER_HISTORICAL_ROOKIES);
+        }
+      } catch (e) {}
+    };
+    document.head.appendChild(s);
+  }
+  // 首屏渲染完再拿，不跟主包抢带宽
+  if (typeof window.requestIdleCallback === 'function') window.requestIdleCallback(load, { timeout: 5000 });
+  else setTimeout(load, 2500);
+})();
+
 // 本地名单覆盖（可选）：由 tools/import_external_pool.mjs 生成到 assets/data/local/，
 // 该目录已在 .gitignore 中，公开站点不会请求也不会上传这份数据。
 // 这份文件只负责「谁在哪支队」，属性仍以 2025-26 校准数据为准：

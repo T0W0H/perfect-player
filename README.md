@@ -88,6 +88,21 @@ python tools/fetch_historical_headshots.py
 - The 150 peak cards are frozen in `assets/data/perfect-player-historical-peak-table.json` (30 teams × PG/SG/SF/PF/C).
 - Normal pool builds read that table directly and do not scan `rosters01.csv` through `rosters19.csv` to recalculate peak cards.
 
+## 历史球员新秀名单（未来赛季不再用匿名名单）
+
+2026/2027 两届选秀用完后，未来赛季的新秀会从真实历史球员里抽取（1947-2026 共 80 届选秀）。
+名单由仓库里的数据生成为 `assets/js/historical-rookie-pool.js`（232 KB，gzip 83 KB，页面空闲时才加载）：
+
+```bash
+node tools/build_historical_rookie_pool.mjs
+```
+
+- 姓名/位置/选秀年份来自 `assets/data/historical/draft_classes.json`；总评由真实生涯评分种子换算。
+- 属性画像来自 `assets/data/historical/player_seasons_*.json`（63 个赛季的真实技术统计）：
+  篮板怪真的是篮板怪，组织后卫真的会传球（只对篮板/传球/盖帽/抢断/三分/终结六项做偏移，其余属性不做臆测）。
+- 头像只引用 `assets/data/historical/headshots/` 里已存在的文件，不会产生碎图。
+- 抽不到有真实数据的球员时退回按总评生成，不会报错；名单文件加载失败时会退回旧的长尾名单。
+
 ## 本地导入外部名单（可选，不会上传）
 
 `tools/import_external_pool.mjs` 可以把 [BuildMyNBAPlayer](https://github.com/dandyzw/BuildMyNBAPlayer)（在线版 <https://icr3am.com/nba-game/>）的球员名单转换成本项目能直接读取的覆盖脚本。产物写入 `assets/data/local/`，该目录已在 `.gitignore` 中：**只在本机生效，公开站点不会请求、也不会提交到仓库**。
