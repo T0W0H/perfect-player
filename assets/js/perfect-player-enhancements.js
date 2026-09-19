@@ -299,6 +299,15 @@
     { id: 'mvp', icon: '🏆', name: '联盟 MVP', desc: '荣膺常规赛最有价值球员', rarity: 'legend' },
     { id: 'fmvp', icon: '👑', name: '总决赛 MVP', desc: '荣膺总决赛最有价值球员', rarity: 'legend' },
     { id: 'mvp_x3', icon: '🐐', name: 'MVP 王朝', desc: '同一生涯累计 3 座常规赛 MVP', rarity: 'legend' },
+    // — 赛季数据王（数据由 calcSeasonAwards 产出，与奖项页同源） —
+    { id: 'king_scoring', icon: '🎯', name: '得分王', desc: '单赛季场均得分联盟第一', rarity: 'rare' },
+    { id: 'king_rebound', icon: '💪', name: '篮板王', desc: '单赛季场均篮板联盟第一', rarity: 'rare' },
+    { id: 'king_assist', icon: '🅰️', name: '助攻王', desc: '单赛季场均助攻联盟第一', rarity: 'rare' },
+    { id: 'king_three', icon: '🏹', name: '三分王', desc: '单赛季三分命中数联盟第一', rarity: 'rare' },
+    { id: 'king_steal', icon: '🧤', name: '抢断王', desc: '单赛季场均抢断联盟第一', rarity: 'rare' },
+    { id: 'king_block', icon: '🚫', name: '盖帽王', desc: '单赛季场均盖帽联盟第一', rarity: 'rare' },
+    { id: 'king_triple', icon: '🃏', name: '三王同季', desc: '同一赛季拿下 3 项数据王', rarity: 'epic' },
+    { id: 'king_all', icon: '🎖️', name: '六王加身', desc: '同一赛季包揽全部 6 项数据王', rarity: 'epic' },
     // — 球队战绩 —
     { id: 'playoffs', icon: '🎟️', name: '季后赛门票', desc: '首次带队打进季后赛', rarity: 'common' },
     { id: 'win_60', icon: '🎊', name: '60 胜赛季', desc: '单赛季常规赛拿下 60 胜', rarity: 'epic' },
@@ -861,7 +870,9 @@
       mvp: 'mvp', fmvp: 'fmvp', allstarmvp: 'allStarMvp',
       dpoy: 'dpoy', roty: 'roty', roy: 'roty', sixthman: 'sixthman',
       allstar: 'allStar', allnba: 'allNBA', allrookie: 'allRookie',
-      alldefensive: 'allDefense', champion: 'champion'
+      alldefensive: 'allDefense', champion: 'champion',
+      scoring: 'kingScoring', rebound: 'kingRebound', assist: 'kingAssist',
+      three: 'kingThree', steal: 'kingSteal', block: 'kingBlock'
     };
     if (actKinds[act]) return actKinds[act];
 
@@ -880,6 +891,13 @@
     if (clean === '最佳新秀阵容' || clean === '最佳新秀一阵' || clean === '最佳新秀二阵' || clean === '新秀一阵' || clean === '新秀二阵' || clean === 'ALL-ROOKIE') return 'allRookie';
     if (clean === '最佳防守阵容' || clean === '最佳防守一阵' || clean === '最佳防守二阵' || clean === '一防' || clean === '二防' || clean === 'ALL-DEFENSIVE') return 'allDefense';
     if (clean === '总冠军' || clean === 'NBA总冠军') return 'champion';
+    // 数据王（label 仅用于旧存档；新版存档靠 act 命中）
+    if (clean === '得分王') return 'kingScoring';
+    if (clean === '篮板王') return 'kingRebound';
+    if (clean === '助攻王') return 'kingAssist';
+    if (clean === '三分王') return 'kingThree';
+    if (clean === '抢断王') return 'kingSteal';
+    if (clean === '盖帽王') return 'kingBlock';
     return '';
   }
   PP_FX.classifyAchievementAward = classifyAward;
@@ -905,7 +923,13 @@
       all_star: !!facts.allStar,
       all_nba: !!facts.allNBA,
       sixth_man: !!facts.sixthman,
-      champion: facts.champion > 0
+      champion: facts.champion > 0,
+      king_scoring: (facts.statKings.scoring || 0) > 0,
+      king_rebound: (facts.statKings.rebound || 0) > 0,
+      king_assist: (facts.statKings.assist || 0) > 0,
+      king_three: (facts.statKings.three || 0) > 0,
+      king_steal: (facts.statKings.steal || 0) > 0,
+      king_block: (facts.statKings.block || 0) > 0
     };
     var changed = false;
     Object.keys(facts.falsePositiveTargets || {}).forEach(function(id) {
@@ -985,13 +1009,20 @@
     (currentSeason.games || []).forEach(function(game) { unlockGameStatMilestones(game && game.stats); });
   }
 
+  // 数据王：act → 成就 id，以及同季组合成就的分组统计
+  var KING_ACHIEVEMENTS = {
+    scoring: 'king_scoring', rebound: 'king_rebound', assist: 'king_assist',
+    three: 'king_three', steal: 'king_steal', block: 'king_block'
+  };
+
   function syncAchievementState() {
     var s = G(); if (!s) return {};
     var me = displayName();
     var facts = {
       mvp:0, fmvp:0, dpoy:false, roty:false, sixthman:false,
       allStar:false, allNBA:false, allRookie:false, allDefense:false,
-      champion:0, falsePositiveTargets:{}
+      champion:0, falsePositiveTargets:{},
+      statKings:{}, statKingSeasons:{}
     };
     var seen = {};
     function keyFor(a, scope) {
@@ -1026,6 +1057,14 @@
       if (kind === 'allRookie') facts.allRookie = true;
       if (kind === 'allDefense') facts.allDefense = true;
       if (kind === 'champion') facts.champion++;
+      if (kind.indexOf('king') === 0) {
+        // kingScoring → scoring。同季组合成就按赛季键分组，不跨赛季相加。
+        var statKey = kind.slice(4).toLowerCase();
+        facts.statKings[statKey] = (facts.statKings[statKey] || 0) + 1;
+        var seasonKey = key.split('|')[0] || 'unknown';
+        var group = facts.statKingSeasons[seasonKey] || (facts.statKingSeasons[seasonKey] = {});
+        group[statKey] = true;
+      }
     }
     // saveCurrentSeasonToCareer() 归档后不会立刻清空 season.awards；此时同一座
     // 冠军已存在于 career.honors / career.seasons，继续扫描 current 会重复计数。
@@ -1063,6 +1102,18 @@
       PP_FX.unlock('playoffs');
     }
     if (facts.champion >= 3) PP_FX.unlock('champion_x3', singleCareerEvidence(s, facts.champion, 2));
+    Object.keys(KING_ACHIEVEMENTS).forEach(function (statKey) {
+      var count = facts.statKings[statKey] || 0;
+      if (count > 0) unlockWithFactEvidence(KING_ACHIEVEMENTS[statKey], s, 'king_' + statKey, count);
+    });
+    // 单赛季多项数据王：取生涯里最丰收的那一季
+    var bestKingSeason = 0;
+    Object.keys(facts.statKingSeasons).forEach(function (seasonKey) {
+      var n = Object.keys(facts.statKingSeasons[seasonKey]).length;
+      if (n > bestKingSeason) bestKingSeason = n;
+    });
+    if (bestKingSeason >= 3) unlockWithFactEvidence('king_triple', s, 'kingSeason3', bestKingSeason);
+    if (bestKingSeason >= 6) unlockWithFactEvidence('king_all', s, 'kingSeason6', bestKingSeason);
     PP_FX._achievementFacts = facts;
     return facts;
   }

@@ -31,7 +31,7 @@ function extractFunction(source, name) {
   throw new Error('函数大括号不配对: ' + name);
 }
 
-const startMarker = '// ==================== 数据王（得分 / 篮板 / 助攻 / 抢断 / 盖帽） ====================';
+const startMarker = '// ==================== 数据王（得分 / 篮板 / 助攻 / 三分 / 抢断 / 盖帽） ====================';
 const endMarker = 'updateAwardStreaks();';
 const start = html.indexOf(startMarker);
 const end = html.indexOf(endMarker, start);
@@ -100,9 +100,9 @@ function check(label, fn) {
 
 console.log('赛季奖项测试');
 
-check('五项数据王都会产出，且字段完整', () => {
-  const awards = runAwards(baseLeague, ['AAA', 'BBB'], { pts: 18, reb: 5, ast: 5, stl: 1, blk: 0.5 }, 82);
-  ['scoring', 'rebound', 'assist', 'steal', 'block'].forEach((act) => {
+check('六项数据王都会产出，且字段完整', () => {
+  const awards = runAwards(baseLeague, ['AAA', 'BBB'], { pts: 18, reb: 5, ast: 5, stl: 1, blk: 0.5, threeM: 2.2 }, 82);
+  ['scoring', 'rebound', 'assist', 'three', 'steal', 'block'].forEach((act) => {
     const a = find(awards, act);
     assert.ok(a, act + ' 应该存在');
     assert.ok(a.winner && typeof a.winner === 'string', act + ' 应有获奖者');
@@ -130,8 +130,8 @@ check('数据不足时给 NPC，并标出用户排名', () => {
 });
 
 check('出勤不足 58 场时不给数据王，并显示场次', () => {
-  const awards = runAwards(baseLeague, ['AAA', 'BBB'], { pts: 42, reb: 14, ast: 12, stl: 3, blk: 4 }, 40);
-  ['scoring', 'rebound', 'assist', 'steal', 'block'].forEach((act) => {
+  const awards = runAwards(baseLeague, ['AAA', 'BBB'], { pts: 42, reb: 14, ast: 12, stl: 3, blk: 4, threeM: 3.5 }, 40);
+  ['scoring', 'rebound', 'assist', 'three', 'steal', 'block'].forEach((act) => {
     const a = find(awards, act);
     assert.equal(a.isUser, false, act + ' 出勤不足不该获奖');
     assert.ok(a.userRank.indexOf('出勤不足') >= 0);
@@ -179,6 +179,21 @@ check('组织中锋例外：PAS 92+ 的中锋按组织核心估算助攻', () =>
   };
   const awards = runAwards(league, ['AAA', 'BBB'], { pts: 5, reb: 3, ast: 3, stl: 0.3, blk: 0.3 }, 82);
   assert.equal(find(awards, 'assist').winner, '约-基奇式', '组织中锋应拿下助攻王');
+});
+
+check('三分王：比的是三分命中数，不是得分', () => {
+  const shooter = (name, cname, threePT) => ({
+    name, cname, ovr: 88, pos: 'SG',
+    threePT, MID: 85, FIN: 84, DNK: 80, REB: 55, STR: 65, PAS: 78, HAN: 85, PDEF: 78, ATH: 86, BLK: 35, IDEF: 55,
+  });
+  const league = { AAA: [shooter('Sharp Guy', '神-射手', 96)], BBB: [shooter('Cold Guy', '铁-手', 70)] };
+  const userAvg = (threeM) => ({ pts: 20, reb: 4, ast: 4, stl: 1, blk: 0.3, threeM });
+  const won = find(runAwards(league, ['AAA', 'BBB'], userAvg(4.6), 82), 'three');
+  assert.equal(won.isUser, true, '三分产量领先应拿下三分王：' + won.summary);
+  assert.equal(won.userRank, '🥇 第一名');
+  const lost = find(runAwards(league, ['AAA', 'BBB'], userAvg(0.8), 82), 'three');
+  assert.equal(lost.isUser, false, '三分产量不足不该拿奖');
+  assert.equal(lost.winner, '神-射手');
 });
 
 check('防守排名前五即可入选最佳防守阵容（不要求第一）', () => {

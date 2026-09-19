@@ -5288,7 +5288,7 @@ function updateAwardStreaks() {
   var seasonKey = c && c.seasonCount;
   if (!seasonKey || STATE._awardStreakSeason === seasonKey) return;
   STATE._awardStreakSeason = seasonKey;
-  var acts = ['mvp', 'dpoy', 'sixthman', 'scoring', 'rebound', 'assist', 'steal', 'block', 'allDefense', 'mip'];
+  var acts = ['mvp', 'dpoy', 'sixthman', 'scoring', 'rebound', 'assist', 'three', 'steal', 'block', 'allDefense', 'mip'];
   var userObj = getUserPlayerObject();
   var winnerByAct = {};
   (STATE.season.awards || []).forEach(function(a) {
@@ -5323,6 +5323,7 @@ function calcSeasonAwards() {
     ast: Math.round(ps.ast / g * 10) / 10,
     stl: Math.round(ps.stl / g * 10) / 10,
     blk: Math.round(ps.blk / g * 10) / 10,
+    threeM: Math.round((Number(ps.threeM) || 0) / g * 10) / 10,
   };
   STATE.season.awards = [];
 
@@ -5735,7 +5736,7 @@ function calcSeasonAwards() {
     }
   })();
 
-  // ==================== 数据王（得分 / 篮板 / 助攻 / 抢断 / 盖帽） ====================
+  // ==================== 数据王（得分 / 篮板 / 助攻 / 三分 / 抢断 / 盖帽） ====================
   // 联盟球员没有逐场统计，这里用「属性驱动 + 出场角色 + 球队战绩」估算，口径贴近现实：
   // 替补不可能拿数据王；排名仍是确定性比较（不掷骰子），只保留 ±3% 的年度状态波动。
   var _npcLineupCache = {};
@@ -5800,6 +5801,12 @@ function calcSeasonAwards() {
         var pdF = getA(p,'PDEF') * 0.7 + getA(p,'ATH') * 0.3;
         return Math.max(0.1, 2.1 * Math.pow(pdF / 95, 3.0));
       }
+      if (key === 'threeM') {
+        // 三分命中数：顶级射手 ≈ 3.0 个/场，内线出手少但也能上榜（唐斯/洛佩兹式）
+        var shootF = getA(p,'threePT') * 0.8 + getA(p,'MID') * 0.2;
+        var threePosMul = pos === 'SG' ? 1.12 : pos === 'PG' ? 1.05 : pos === 'SF' ? 1.0 : pos === 'PF' ? 0.85 : 0.62;
+        return Math.max(0.2, 2.7 * Math.pow(shootF / 95, 3.6) * threePosMul);
+      }
       var blkF = getA(p,'BLK') * 0.75 + getA(p,'IDEF') * 0.25;
       var blkBase = pos === 'C' ? 3.4 : pos === 'PF' ? 2.3 : pos === 'SF' ? 1.1 : 0.9;
       return Math.max(0.1, blkBase * Math.pow(blkF / 95, 3.0));
@@ -5809,6 +5816,7 @@ function calcSeasonAwards() {
       { act:'scoring', label:'得分王', stat:'pts', unit:'分' },
       { act:'rebound', label:'篮板王', stat:'reb', unit:'篮板' },
       { act:'assist',  label:'助攻王', stat:'ast', unit:'助攻' },
+      { act:'three',   label:'三分王', stat:'threeM', unit:'三分' },
       { act:'steal',   label:'抢断王', stat:'stl', unit:'抢断' },
       { act:'block',   label:'盖帽王', stat:'blk', unit:'盖帽' },
     ];
@@ -5969,8 +5977,8 @@ function showAwardsScreen() {
 
   setTimeout(function() {
   var seed = getConferenceSeed(STATE.careerTeam);
-  var emojiMap = { mvp:'🏆', dpoy:'🔒', mip:'📈', allStar:'⭐', allNBA:'🌟', allDefense:'🛡️', roty:'🌱', allRookie:'🌱', sixthman:'🔥', scoring:'🎯', rebound:'💪', assist:'🅰️', steal:'🧤', block:'🚫' };
-  var catMap = { mvp:'最有价值球员', dpoy:'最佳防守球员', mip:'进步最快球员', allStar:'全明星', allNBA:'最佳阵容', allDefense:'最佳防守阵容', roty:'最佳新秀', allRookie:'最佳新秀阵容', sixthman:'最佳第六人', scoring:'得分王', rebound:'篮板王', assist:'助攻王', steal:'抢断王', block:'盖帽王' };
+  var emojiMap = { mvp:'🏆', dpoy:'🔒', mip:'📈', allStar:'⭐', allNBA:'🌟', allDefense:'🛡️', roty:'🌱', allRookie:'🌱', sixthman:'🔥', scoring:'🎯', rebound:'💪', assist:'🅰️', three:'🏹', steal:'🧤', block:'🚫' };
+  var catMap = { mvp:'最有价值球员', dpoy:'最佳防守球员', mip:'进步最快球员', allStar:'全明星', allNBA:'最佳阵容', allDefense:'最佳防守阵容', roty:'最佳新秀', allRookie:'最佳新秀阵容', sixthman:'最佳第六人', scoring:'得分王', rebound:'篮板王', assist:'助攻王', three:'三分王', steal:'抢断王', block:'盖帽王' };
 
   function getHs(enName) {
     if (!enName) return '';
@@ -5979,7 +5987,7 @@ function showAwardsScreen() {
   }
 
   var rowsHtml = '';
-  var order = ['mvp', 'dpoy', 'mip', 'allStar', 'roty', 'sixthman', 'allNBA', 'allDefense', 'allRookie', 'scoring', 'rebound', 'assist', 'steal', 'block'];
+  var order = ['mvp', 'dpoy', 'mip', 'allStar', 'roty', 'sixthman', 'allNBA', 'allDefense', 'allRookie', 'scoring', 'rebound', 'assist', 'three', 'steal', 'block'];
   var isFirstAwardSeason = !STATE.career || STATE.career.seasonCount === 0;
   var rowsRendered = 0;
   for (var oi = 0; oi < order.length; oi++) {
@@ -15942,6 +15950,13 @@ function calcTrainingPointItems() {
   if (hasLabel('总决赛MVP')) add('fmvp', '总决赛MVP', 1);
   if (hasLabel('DPOY')) add('dpoy', 'DPOY', 1);
   if (hasLabel('总冠军')) add('champion', '总冠军', 1);
+  // 数据王：每一项独立计分，六项全包一季最多 +6
+  if (hasLabel('得分王')) add('titleScoring', '得分王', 1);
+  if (hasLabel('篮板王')) add('titleRebound', '篮板王', 1);
+  if (hasLabel('助攻王')) add('titleAssist', '助攻王', 1);
+  if (hasLabel('三分王')) add('titleThree', '三分王', 1);
+  if (hasLabel('抢断王')) add('titleSteal', '抢断王', 1);
+  if (hasLabel('盖帽王')) add('titleBlock', '盖帽王', 1);
 
   // ---- 球队表现（常规赛战绩） ----
   var teamWins = s.wins || 0;
