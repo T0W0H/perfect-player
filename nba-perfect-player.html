@@ -4997,7 +4997,15 @@ function quickSimAllGames() {
       } else if (branchEv) {
         showSeasonBranchEvent(branchEv, function() { regularGameDelay(simNextWithDelay); });
       } else {
-        regularGameDelay(simNextWithDelay);
+        // 高光场次走剧情弹窗的同一个接口（showEventModal）——
+        // 绝杀/加时/三双/40+ 这一类真的值得停下来看一眼，其余场次只进点阵图的 title
+        var spotlight = null;
+        try { spotlight = getRegularGameSpotlight(stats, Object.assign({}, result, { oppTeam: g.opponent }), gi + 1); } catch(ex) {}
+        if (spotlight && typeof showEventModal === 'function') {
+          showEventModal(spotlight, function() { regularGameDelay(simNextWithDelay); });
+        } else {
+          regularGameDelay(simNextWithDelay);
+        }
       }
     } catch(e) { console.error('[Sim] 第' + (gi + 1) + '场异常:', e); gi++; regularGameDelay(simNextWithDelay); }
   }
@@ -7190,6 +7198,8 @@ function readGameShape(gameResult) {
   var a = Number(gameResult && gameResult.scoreA) || 0;
   var b = Number(gameResult && gameResult.scoreB) || 0;
   shape.margin = Math.abs(a - b);
+  // 自己从比分算胜负：调用方不一定要把 won 传进来（快照/重绘时容易漏）
+  shape.won = gameResult && gameResult.won != null ? !!gameResult.won : a > b;
   shape.ot = Number(gameResult && gameResult.ot) || 0;
   shape.expectedWinProb = Number(gameResult && gameResult.expectedWinProb);
   return shape;
@@ -7328,9 +7338,74 @@ function buildPostGameLines(stats, ctx) {
     }
   }
 
-  // 最多 3 句，按优先级保留（同优先级保持原有先后）
+  // 常规赛要短：同一条与剧情弹窗共用接口，长篇留给定季后的单场简报。
+  var maxLines = ctx.maxLines != null ? ctx.maxLines : (ctx.isPlayoff ? 3 : 2);
   collected.sort(function(a, b) { return a.p - b.p; });
-  return collected.slice(0, 3).map(function(x) { return x.t; });
+  return collected.slice(0, maxLines).map(function(x) { return x.t; });
+}
+
+/**
+ * 常规赛「高光场次」：值得单独弹一次剧情的比赛。
+ * 只有真的发生了大场面才返回（绝杀 / 加时 / 爆冷 / 三双 / 40+），
+ * 再加冷却与每季上限——82 场要是场场弹窗，那就成折磨了。
+ */
+var REGULAR_SPOTLIGHT = {
+  cooldownGames: 4,     // 两次弹窗至少隔 4 场
+  maxPerSeason: 12,     // 一季最多弹 12 次
+  bigScore: 40,         // 得分爆发门槛
+};
+
+function getRegularGameSpotlight(stats, gameResult, gameNum) {
+  if (!stats || !STATE.season) return null;
+  var spot = STATE.season._spotlight;
+  if (!spot) spot = STATE.season._spotlight = { lastGame: -99, count: 0 };
+  if (spot.count >= REGULAR_SPOTLIGHT.maxPerSeason) return null;
+  var num = Number(gameNum) || 0;
+  if (num - spot.lastGame < REGULAR_SPOTLIGHT.cooldownGames) return null;
+
+  var shape = readGameShape(gameResult);
+  var won = shape.won;
+  var pts = Number(stats.pts) || 0;
+  var reb = Number(stats.reb) || 0;
+  var ast = Number(stats.ast) || 0;
+  var oppName = typeof getTeamName === 'function' ? getTeamName(gameResult.oppTeam) : '对手';
+  var title = '', emoji = '', body = '';
+
+  if (won && shape.margin <= 3 && shape.clutchHold) {
+    emoji = '🧊'; title = shape.ot ? '加时绝杀' : '最后一回合';
+    body = '比分卡在最紧的地方，最后那个回合你守住了。终场哨响时，替补席第一个冲进场内的是你身边的年轻人。';
+  } else if (!won && shape.margin <= 3 && shape.clutchMiss) {
+    emoji = '💔'; title = '被反绝杀';
+    body = '最后一攻没进。你站在原地看了看计分牌，然后走回去和每个人击掌——这种夜晚以后会变成你最不想重看、也最忘不掉的一种。';
+  } else if (shape.ot >= 2) {
+    emoji = '⏱'; title = '两个加时';
+    body = '比赛被拖到第二个加时。你的腿已经很沉，但没人愿意在这时候被换下。';
+  } else if (pts >= 10 && reb >= 10 && ast >= 10) {
+    emoji = '📊'; title = '三双';
+    body = '记分牌上三列数字都上了两位数。你赛后说：我没看统计，是队友告诉我的。';
+  } else if (pts >= REGULAR_SPOTLIGHT.bigScore) {
+    emoji = '🔥'; title = pts + ' 分';
+    body = '今晚球就是能进。对手换了三个人防你，第四节还是没能把你按下来。';
+  } else if (shape.upset) {
+    emoji = '💥'; title = won ? '爆冷赢球' : '被爆冷';
+    body = won ? '赛前没人看好你们，包括部分主场球迷。比赛打到最后，他们全都站起来了。' : '赛前没人看好他们。你打得不错，但对面的夜晚比你更完整。';
+  } else {
+    return null;
+  }
+
+  spot.lastGame = num;
+  spot.count += 1;
+  var lines = buildPostGameLines(stats, { won: won, gameResult: gameResult, oppTeam: gameResult.oppTeam, isPlayoff: false });
+  var triple = typeof getTripleChaseNote === 'function' ? getTripleChaseNote(stats) : '';
+  var bodyText = body + (triple ? '\n' + triple : '');
+  return {
+    emoji: emoji,
+    title: title,
+    body: bodyText,
+    detail: '对阵 ' + oppName + ' · ' + (gameResult.scoreA || 0) + '-' + (gameResult.scoreB || 0)
+      + (lines.length ? '<br>' + lines.join('<br>') : ''),
+    btnText: '继续',
+  };
 }
 
 function generatePlayerStatsNew(attrs, gameResult, isPlayoff, gameCtx) {

@@ -197,4 +197,86 @@ check('每场最多 3 句（不会刷屏）', () => {
   assert.ok(lines.length <= 3, '最多 3 句，实际 ' + lines.length + '：' + lines.join(' / '));
 });
 
+const spotCode = [
+  'var STATE = { careerTeam: "LAL", position: "SG", season: {} };',
+  'function getTeamName(t) { return ({ BOS: "凯尔特人" })[t] || t; }',
+  extractFunction(html, 'readGameShape'),
+  extractFunction(html, 'getOpponentTopPerformer'),
+  extractFunction(html, 'getOpponentShooting'),
+  extractFunction(html, 'buildPostGameLines'),
+  html.slice(html.indexOf('var REGULAR_SPOTLIGHT'), html.indexOf('function getRegularGameSpotlight')),
+  extractFunction(html, 'getRegularGameSpotlight'),
+  'return { spot: getRegularGameSpotlight, reset: function() { STATE.season = {}; } };',
+].join('\n');
+const spotApi = new Function(spotCode)();
+const getRegularGameSpotlight = spotApi.spot;
+const resetSpotlight = spotApi.reset;
+
+check('常规赛高光弹窗：结构与剧情弹窗接口一致', () => {
+  const spot = getRegularGameSpotlight(stats({}), Object.assign(game({ my: 112, opp: 110, events: [CLUTCH_HOLD] }), { oppTeam: 'BOS' }), 10);
+  assert.ok(spot, '绝杀应该触发弹窗');
+  ['emoji', 'title', 'body', 'detail', 'btnText'].forEach((k) => {
+    assert.ok(typeof spot[k] === 'string' && spot[k].length > 0, '弹窗字段 ' + k + ' 不能为空（showEventModal 要用）');
+  });
+  assert.ok(spot.title.indexOf('最后一回合') >= 0, '无加时的绝杀标题应是“最后一回合”：' + spot.title);
+  assert.ok(spot.body.length > 10, '正文不能太短');
+  assert.ok(spot.detail.indexOf('凯尔特人') >= 0, '详情应写对手：' + spot.detail);
+});
+
+check('加时绝杀：标题会改成“加时绝杀”', () => {
+  resetSpotlight();
+  const spot = getRegularGameSpotlight(stats({}), Object.assign(game({ my: 120, opp: 118, ot: 1, events: [CLUTCH_HOLD] }), { oppTeam: 'BOS' }), 12);
+  assert.ok(spot && spot.title.indexOf('加时绝杀') >= 0, '应写明加时绝杀：' + (spot && spot.title));
+});
+
+check('普通比赛不弹窗（不能场场弹）', () => {
+  const plain = getRegularGameSpotlight(stats({ pts: 18, reb: 4, ast: 3 }), Object.assign(game({ my: 104, opp: 98 }), { oppTeam: 'BOS' }), 5);
+  assert.equal(plain, null, '平凡的一场不该打扰玩家');
+});
+
+check('三双 / 40+ / 双加时 / 爆冷 都能触发', () => {
+  const ctx = (g) => Object.assign(g, { oppTeam: 'BOS' });
+  // 每例前重置：它们共用同一份冷却状态（说明冷却确实生效）
+  resetSpotlight();
+  assert.ok(getRegularGameSpotlight(stats({ pts: 20, reb: 12, ast: 11 }), ctx(game({ my: 110, opp: 100 })), 10), '三双应触发');
+  resetSpotlight();
+  assert.ok(getRegularGameSpotlight(stats({ pts: 44, fgm: 17, fga: 28 }), ctx(game({ my: 118, opp: 110 })), 20), '40+ 应触发');
+  resetSpotlight();
+  assert.ok(getRegularGameSpotlight(stats({ pts: 22 }), ctx(game({ my: 130, opp: 128, ot: 2 })), 30), '双加时应触发');
+  resetSpotlight();
+  assert.ok(getRegularGameSpotlight(stats({ pts: 25 }), ctx(game({ my: 108, opp: 104, events: [UPSET] })), 40), '爆冷应触发');
+  resetSpotlight();
+});
+
+check('冷却：两次弹窗之间至少隔 4 场', () => {
+  resetSpotlight();
+  const ctx = Object.assign(game({ my: 112, opp: 110, events: [CLUTCH_HOLD] }), { oppTeam: 'BOS' });
+  assert.ok(getRegularGameSpotlight(stats({}), ctx, 10), '第 10 场应该弹');
+  assert.equal(getRegularGameSpotlight(stats({}), ctx, 11), null, '紧接着的第 11 场应被冷却拦住');
+  assert.equal(getRegularGameSpotlight(stats({}), ctx, 13), null, '还差一场也不弹');
+  assert.ok(getRegularGameSpotlight(stats({}), ctx, 14), '隔满 4 场后可以再弹');
+});
+
+check('每季上限：超过 12 次就不再弹', () => {
+  resetSpotlight();
+  const ctx = Object.assign(game({ my: 112, opp: 110, events: [CLUTCH_HOLD] }), { oppTeam: 'BOS' });
+  let fired = 0;
+  for (let g = 1; g <= 82; g += 5) {
+    if (getRegularGameSpotlight(stats({}), ctx, g)) fired++;
+  }
+  assert.equal(fired, 12, '一季最多 12 次，实际 ' + fired);
+});
+
+check('常规赛文案更短：最多 2 句（季后赛仍是 3）', () => {
+  const heavy = stats({ pts: 45, reb: 12, ast: 11, stl: 4, blk: 3, fgm: 18, fga: 28 });
+  const ctx = {
+    won: true, oppTeam: 'BOS',
+    gameResult: game({ my: 128, opp: 126, ot: 1, events: [CLUTCH_HOLD], oppBox: [{ name: 'X', cname: '某某', pts: 40, reb: 5, ast: 5 }] }),
+  };
+  const reg = buildPostGameLines(heavy, Object.assign({ isPlayoff: false }, ctx));
+  assert.ok(reg.length <= 2, '常规赛最多 2 句，实际 ' + reg.length + '：' + reg.join(' / '));
+  const po = buildPostGameLines(heavy, Object.assign({ isPlayoff: true, seriesWins: 3, seriesLosses: 3 }, ctx));
+  assert.ok(po.length <= 3 && po.length >= reg.length, '季后赛可以到 3 句，实际 ' + po.length);
+});
+
 console.log('\n全部通过：' + passed + ' 项');
