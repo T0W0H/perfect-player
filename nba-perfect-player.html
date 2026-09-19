@@ -4604,6 +4604,24 @@ function getConferenceSorted(conf) {
 }
 
 // ==================== 6. 赛季模拟（新引擎）====================
+// ==================== 赛季节奏（调参入口）====================
+// 常规赛季长 82 场，节奏要快，不磨叽；季后赛一场一场看，要慢，留时间读赛后文案。
+// 改速度只改这里，不要去改各个 setTimeout 的字面量。
+//
+// 数值不是拍脑袋的，是量了隔壁 BuildMyNBAPlayer 线上版（icr3am.com/nba-game）：
+//   常规赛 simStepDelay() 直接 return 0（零延迟一口气刷完 82 场）
+//   季后赛 每场 600ms；开赛前等待 60ms
+// 所以常规赛给 0（setTimeout(0) 仍会让出主线程，UI 照常一场场更新）；
+// 季后赛给 800ms：比隔壁稍慢，因为我们的单场简报现在有 2~3 句赛后文案要读。
+var SIM_PACE = {
+  regularStart: 60,     // 进赛季页后开始模拟的等待（隔壁 60）
+  regularGame: 0,       // 常规赛每场间隔（隔壁 0）
+  playoffGame: 800,     // 季后赛每场间隔（隔壁 600；我们文案更长，稍慢一点）
+};
+
+/** 常规赛每场之间等多久（集中在一处，方便统一调） */
+function regularGameDelay(fn) { setTimeout(fn, SIM_PACE.regularGame); }
+
 function startSeason() {
   showScreen('screen-season');
   clearLineupCache();
@@ -4660,7 +4678,7 @@ function startSeason() {
     '</div>' +
     '<div style="text-align:center;padding:4px 0 8px;font-size:12px;color:var(--text-dim);" id="simStatus"></div>';
 
-  setTimeout(quickSimAllGames, 1200);
+  setTimeout(quickSimAllGames, SIM_PACE.regularStart);
 }
 
 // ★ 逐场模拟全部 82 场常规赛，点逐个出现
@@ -4840,7 +4858,7 @@ function quickSimAllGames() {
           var esEl = document.getElementById('eventStatusBar');
           if (esEl) esEl.outerHTML = renderEventStatus();
           gi++;
-          setTimeout(simNextWithDelay, 120);
+          regularGameDelay(simNextWithDelay);
         };
         var runPlayedThroughRegularGame = function(severity) {
           ev.injuryGamesLeft = Math.max(0, (ev.injuryGamesLeft || 0) - 1);
@@ -4883,7 +4901,7 @@ function quickSimAllGames() {
           var esH = document.getElementById('eventStatusBar');
           if (esH) esH.outerHTML = renderEventStatus();
           gi++;
-          setTimeout(simNextWithDelay, 120);
+          regularGameDelay(simNextWithDelay);
         };
         if (skipReason === 'injury' && isKeyInjuredRegularGame(g, gi, games.length) && shouldOfferPlayThroughInjury('reg-' + (STATE.season.games.length + 1), true)) {
           showPlayThroughInjuryModal({
@@ -4918,7 +4936,13 @@ function quickSimAllGames() {
       ps.mins = (ps.mins || 0) + stats.mins;
       ps.games++;
 
-      STATE.season.games.push({ result: result, stats: stats, game: g });
+      // 赛后文案（与季后赛共用）：常规赛只挂在点的 title 与本季高光里，不打断播放
+      var gameEntryNarrative = buildPostGameLines(stats, {
+        won: result.won, myScore: result.scoreA, oppScore: result.scoreB,
+        oppTeam: g.opponent, gameResult: result, isPlayoff: false,
+      });
+
+      STATE.season.games.push({ result: result, stats: stats, game: g, narrative: gameEntryNarrative });
       simDayLeagueGames(g.day);
 
       // ★ 赛后检测随机事件
@@ -4935,12 +4959,13 @@ function quickSimAllGames() {
         try { branchEv = checkSeasonBranchEvent(g, result, stats); } catch(ex) {}
       }
 
-      // 更新当前 dot
+      // 更新当前 dot（title 里带上赛后文案，鼠标悬停就能看到）
       var dotEl = document.getElementById('gdot-' + gi);
       if (dotEl) {
         dotEl.className = 'dot ' + (result.won ? 'dot-w' : 'dot-l');
         dotEl.style.animation = 'popIn .3s ease';
-        dotEl.title = 'G' + (gi + 1) + ': ' + (result.won ? '胜' : '负') + ' ' + getTeamName(g.opponent) + ' ' + (result.scoreA || '') + '-' + (result.scoreB || '');
+        var regNote = (gameEntryNarrative && gameEntryNarrative.length) ? '\n' + gameEntryNarrative.join('\n') : '';
+        dotEl.title = 'G' + (gi + 1) + ': ' + (result.won ? '胜' : '负') + ' ' + getTeamName(g.opponent) + ' ' + (result.scoreA || '') + '-' + (result.scoreB || '') + regNote;
       }
 
       // 更新战绩
@@ -4968,13 +4993,13 @@ function quickSimAllGames() {
 
       // ★ 如果有事件弹窗，先弹窗再继续
       if (evData && typeof showEventModal === 'function') {
-        showEventModal(evData, function() { setTimeout(simNextWithDelay, 120); });
+        showEventModal(evData, function() { regularGameDelay(simNextWithDelay); });
       } else if (branchEv) {
-        showSeasonBranchEvent(branchEv, function() { setTimeout(simNextWithDelay, 120); });
+        showSeasonBranchEvent(branchEv, function() { regularGameDelay(simNextWithDelay); });
       } else {
-        setTimeout(simNextWithDelay, 120);
+        regularGameDelay(simNextWithDelay);
       }
-    } catch(e) { console.error('[Sim] 第' + (gi + 1) + '场异常:', e); gi++; setTimeout(simNextWithDelay, 120); }
+    } catch(e) { console.error('[Sim] 第' + (gi + 1) + '场异常:', e); gi++; regularGameDelay(simNextWithDelay); }
   }
 
   simNextWithDelay();
@@ -5960,17 +5985,18 @@ function showAwardsScreen() {
   }, 1500);
 }
 
-/** 本季高光：三双时刻 + 第六人代表作（从最近一场往前） */
+/** 本季高光：先把「有完整赛后文案」的场次挑出来（绝杀/加时/三双/对手爆发…），
+ *  不够再用三双与第六人代表作补齐。这样常规赛也能看到刷三双之外的精彩局面。 */
 function getSeasonHighlightMoments(limit) {
   var games = (STATE.season && STATE.season.games) || [];
   var out = [];
   var max = limit || 3;
-  for (var i = games.length - 1; i >= 0 && out.length < max; i--) {
-    var entry = games[i];
-    var st = entry && entry.stats;
-    if (!st) continue;
+  function addMoment(entry, i) {
+    var st = entry.stats;
     var note = getTripleChaseNote(st) || getSixthManGameNote(st);
-    if (!note) continue;
+    // 没有专属备注时，用赛后文案里的一条（取最抓人的那句）
+    if (!note && entry.narrative && entry.narrative.length) note = entry.narrative[entry.narrative.length - 1];
+    if (!note) return false;
     out.push({
       index: i,
       gameNum: (entry.game && entry.game.gameNum) || (i + 1),
@@ -5978,7 +6004,27 @@ function getSeasonHighlightMoments(limit) {
       won: !!(entry.result && entry.result.won),
       stats: st,
       note: note,
+      lines: (entry.narrative || []).slice(0, 2),
     });
+    return true;
+  }
+  // 第一轮：优先挑真的发生过大场面的（绝杀/反绝杀/加时/爆冷），从最近一场往前
+  for (var i = games.length - 1; i >= 0 && out.length < max; i--) {
+    var entry = games[i];
+    if (!entry || !entry.stats) continue;
+    var big = (entry.narrative || []).some(function(l) {
+      return l.indexOf('🧊') === 0 || l.indexOf('💔') === 0 || l.indexOf('⏱') === 0 || l.indexOf('💥') === 0;
+    });
+    if (!big) continue;
+    addMoment(entry, i);
+  }
+  // 第二轮：还差就用三双 / 第六人代表作补齐
+  for (var j = games.length - 1; j >= 0 && out.length < max; j--) {
+    var e2 = games[j];
+    if (!e2 || !e2.stats) continue;
+    if (out.some(function(m) { return m.index === j; })) continue;
+    if (!getTripleChaseNote(e2.stats) && !getSixthManGameNote(e2.stats)) continue;
+    addMoment(e2, j);
   }
   return out;
 }
@@ -5994,6 +6040,9 @@ function renderSeasonHighlights(limit) {
     h += '<div class="chase-row"><span class="chase-g">G' + m.gameNum + '</span>';
     h += '<span class="chase-line">' + (m.won ? '胜' : '负') + ' ' + opp + ' · <b>' + st.pts + '分 ' + st.reb + '板 ' + st.ast + '助' + pm + '</b></span></div>';
     h += '<div class="chase-note">' + m.note + '</div>';
+    (m.lines || []).forEach(function(l) {
+      h += '<div class="chase-note" style="opacity:.85;">' + l + '</div>';
+    });
   });
   h += '</div>';
   return h;
@@ -6020,7 +6069,9 @@ function renderDotGrid() {
       if (g.suspended) {
         dotsHtml += '<span class="dot dot-x" title="G' + (i + 1) + ': 禁赛">✕</span>';
       } else {
-        dotsHtml += '<span class="dot ' + (g.result.won ? 'dot-w' : 'dot-l') + '" title="G' + (i + 1) + ': ' + (g.result.won ? '胜' : '负') + ' ' + getTeamName(g.game.opponent) + ' ' + (g.result.scoreA || '') + '-' + (g.result.scoreB || '') + tdTag + '"></span>';
+        // 赛后文案直接进 title：悬停任一场就能看到那晚绝杀 / 加时 / 对手谁爆了
+        var noteLines = (g.narrative && g.narrative.length) ? '\n' + g.narrative.join('\n') : '';
+        dotsHtml += '<span class="dot ' + (g.result.won ? 'dot-w' : 'dot-l') + '" title="G' + (i + 1) + ': ' + (g.result.won ? '胜' : '负') + ' ' + getTeamName(g.game.opponent) + ' ' + (g.result.scoreA || '') + '-' + (g.result.scoreB || '') + tdTag + noteLines + '"></span>';
       }
       if ((i + 1) % 14 === 0) dotsHtml += '<br>';
     });
@@ -7118,6 +7169,168 @@ function getSixthManGameNote(stats) {
   if (mins >= 38) return '🔥 名义上是第六人，这场打了 ' + mins + ' 分钟';
   if (pts >= 20 && pm >= 15) return '🔥 替补登场 ' + pts + ' 分，正负值 +' + pm;
   return '';
+}
+
+// ==================== 赛后文案（常规赛与季后赛共用） ====================
+// 只有一个原则：**只说真的发生过的事**。
+// 绝杀/反绝杀不是凭分差猜的，而是看引擎实际产生的 keyEvents；
+// 对手表现来自真实的 boxScore；没发生的情况就不写。
+//
+// 每场比赛最多出 2~3 句，返回的是短句数组，由调用方决定怎么摆（
+// 常规赛摆进点阵图的 title 与“本季高光”，季后赛摆进单场简报）。
+
+/** 比分走势：从 keyEvents 看关键回合是谁守住的 */
+function readGameShape(gameResult) {
+  var events = (gameResult && gameResult.keyEvents) || [];
+  var shape = {
+    clutchHold: events.some(function(e) { return String(e).indexOf('关键回合守住胜局') >= 0; }),
+    clutchMiss: events.some(function(e) { return String(e).indexOf('最后回合惜败') >= 0; }),
+    upset: events.some(function(e) { return String(e).indexOf('爆冷') >= 0; }),
+  };
+  var a = Number(gameResult && gameResult.scoreA) || 0;
+  var b = Number(gameResult && gameResult.scoreB) || 0;
+  shape.margin = Math.abs(a - b);
+  shape.ot = Number(gameResult && gameResult.ot) || 0;
+  shape.expectedWinProb = Number(gameResult && gameResult.expectedWinProb);
+  return shape;
+}
+
+/** 对手打得最好的是谁（从真实 boxScore 取） */
+function getOpponentTopPerformer(gameResult, oppTeam) {
+  var box = gameResult && gameResult.boxScore;
+  if (!box) return null;
+  var rows = null;
+  // boxScore 的键是队名；取不是自己队的那一支
+  Object.keys(box).forEach(function(k) {
+    if (k === STATE.careerTeam) return;
+    if (oppTeam && k !== oppTeam) return;
+    rows = box[k];
+  });
+  if (!rows && oppTeam && box[oppTeam]) rows = box[oppTeam];
+  if (!rows || !rows.length) return null;
+  var best = null;
+  rows.forEach(function(r) {
+    if (!r || r.isUser) return;
+    var impact = (Number(r.pts) || 0) + (Number(r.reb) || 0) * 0.7 + (Number(r.ast) || 0) * 0.9;
+    if (!best || impact > best.impact) best = { name: r.cname || r.name, pts: Number(r.pts) || 0, reb: Number(r.reb) || 0, ast: Number(r.ast) || 0, impact: impact };
+  });
+  return best;
+}
+
+/** 对手整体手感：全队真实命中率（只看投篮，不编造） */
+function getOpponentShooting(gameResult, oppTeam) {
+  var box = gameResult && gameResult.boxScore;
+  if (!box) return null;
+  var rows = box[oppTeam] || null;
+  if (!rows) {
+    Object.keys(box).forEach(function(k) { if (k !== STATE.careerTeam) rows = box[k]; });
+  }
+  if (!rows || !rows.length) return null;
+  var fgm = 0, fga = 0;
+  rows.forEach(function(r) { if (r && !r.isUser) { fgm += Number(r.fgm) || 0; fga += Number(r.fga) || 0; } });
+  if (fga < 10) return null;
+  return { pct: fgm / fga, fgm: fgm, fga: fga };
+}
+
+/**
+ * 生成赛后文案。
+ * ctx: { won, myScore, oppScore, oppTeam, gameResult, isPlayoff, round, seriesWins, seriesLosses, clinch }
+ * 返回短句数组（0~3 句，已按重要性排好序）。
+ */
+function buildPostGameLines(stats, ctx) {
+  ctx = ctx || {};
+  // 先按优先级收集，最后再截断，保证“最多 3 句”时留下的是最值得说的那条。
+  // 优先级：比赛结尾(1) > 自己(2) > 系列赛(3) > 对手(4)
+  var collected = [];
+  function say(priority, text) { if (text) collected.push({ p: priority, t: text }); }
+  if (!stats) return [];
+  var shape = readGameShape(ctx.gameResult);
+  var won = !!ctx.won;
+  var margin = shape.margin;
+  var pts = Number(stats.pts) || 0;
+  var reb = Number(stats.reb) || 0;
+  var ast = Number(stats.ast) || 0;
+  var stl = Number(stats.stl) || 0;
+  var blk = Number(stats.blk) || 0;
+  var fga = Number(stats.fga) || 0;
+  var fgm = Number(stats.fgm) || 0;
+  var fgPct = fga > 0 ? fgm / fga : 0;
+  var oppName = typeof getTeamName === 'function' ? getTeamName(ctx.oppTeam) : (ctx.oppTeam || '对手');
+  var opp = getOpponentTopPerformer(ctx.gameResult, ctx.oppTeam);
+
+  /* ---- 1. 比赛结尾（最抓人的放最前）---- */
+  if (won && margin <= 3 && shape.clutchHold) {
+    say(1, shape.ot >= 1
+      ? '🧊 加时最后回合把比赛按住，' + (shape.ot > 1 ? shape.ot + 'OT ' : '') + '赢下 ' + margin + ' 分'
+      : '🧊 最后回合守住胜局，' + margin + ' 分险胜');
+  } else if (!won && margin <= 3 && shape.clutchMiss) {
+    say(1, shape.ot >= 1
+      ? '💔 加时最后回合没投进，' + margin + ' 分惜败'
+      : '💔 最后一攻没进，' + margin + ' 分被反绝杀');
+  } else if (shape.ot >= 2) {
+    say(1, '⏱ ' + shape.ot + ' 个加时，这场打了快三个小时');
+  } else if (shape.ot === 1) {
+    say(1, '⏱ 打进加时，' + (won ? '最后赢了 ' : '最后输了 ') + margin + ' 分');
+  } else if (shape.upset) {
+    say(1, won ? '💥 爆冷：赛前没人看好你们' : '💥 被爆冷：赛前没人看好他们');
+  } else if (margin >= 20) {
+    say(1, won ? '🎯 ' + margin + ' 分大胜，比赛很早就失去悬念' : '😞 ' + margin + ' 分惨败，末节基本是垃圾时间');
+  }
+
+  /* ---- 2. 对手表现（真实 boxScore）---- */
+  if (opp && opp.pts >= 30) {
+    say(4, won ? '🛡 ' + opp.name + ' 砍了 ' + opp.pts + ' 分，还是没拦住你们赢球' : '😤 ' + opp.name + ' ' + opp.pts + ' 分，怎么防都没用');
+  } else {
+    var oppSh = getOpponentShooting(ctx.gameResult, ctx.oppTeam);
+    if (oppSh && oppSh.pct <= 0.40 && won) say(4, '🔒 把' + oppName + '压到全场 ' + Math.round(oppSh.pct * 100) + '% 命中率');
+    if (oppSh && oppSh.pct >= 0.55 && !won) say(4, '🫠 ' + oppName + '全队 ' + Math.round(oppSh.pct * 100) + '% 命中率，怎么投怎么有');
+  }
+
+  /* ---- 3. 自己这场打成什么样 ---- */
+  var tripleDouble = pts >= 10 && reb >= 10 && ast >= 10;
+  var doubleDouble = !tripleDouble && ((pts >= 10 && reb >= 10) || (pts >= 10 && ast >= 10) || (reb >= 10 && ast >= 10));
+  if (tripleDouble) {
+    say(2, '📊 又是三双：' + pts + '分 ' + reb + '板 ' + ast + '助');
+  } else if (pts >= 40) {
+    say(2, '🔥 ' + pts + ' 分，这是那种会被反复回看的夜晚');
+  } else if (pts >= 30) {
+    say(2, '🔥 ' + pts + ' 分，进攻端一直在要来球');
+  } else if (fga >= 12 && fgPct <= 0.30) {
+    say(2, '🧱 手感冰凉：' + fgm + '-' + fga + '，篮筐像盖了盖子');
+  } else if (stl + blk >= 6) {
+    say(2, '🧱 防守端存在感拉满：' + stl + ' 断 ' + blk + ' 帽');
+  } else if (doubleDouble) {
+    say(2, '📊 两双：' + pts + '分 ' + reb + ' 板 ' + ast + '助');
+  } else if (fgPct >= 0.62 && fga >= 10) {
+    say(2, '🎯 ' + fgm + '-' + fga + '，出手选择干净利落');
+  }
+
+  /* ---- 4. 系列赛处境（只在季后赛）---- */
+  // 注意 seriesWins / seriesLosses 已经把这一场算进去了（w=4 就是刚结束）。
+  // 分支顺序很重要：先判“系列赛结束”，否则抢七会被“抢回一场”先截住。
+  if (ctx.isPlayoff) {
+    var w = Number(ctx.seriesWins);
+    var l = Number(ctx.seriesLosses);
+    if (isFinite(w) && isFinite(l)) {
+      if (w >= 4) {
+        say(3, l === 3
+          ? '⚔️ 抢七赢下来，这轮系列赛值得被记很久'
+          : '🎬 系列赛拿下，' + (ctx.round || '这一轮') + '结束了');
+      } else if (l >= 4) {
+        say(3, l === 4 && w === 3 ? '😔 抢七输了，就差最后一场' : '😔 系列赛结束了，' + (ctx.round || '这一轮') + '止步');
+      } else if (won && w === 3) {
+        say(3, '🏁 拿下赛点，' + (ctx.round || '这一轮') + '只差一场');
+      } else if (!won && l === 3) {
+        say(3, '🚨 站在悬崖边：再输一场就结束了');
+      } else if (won && l === 3) {
+        say(3, '🪨 抢回一场，把系列赛拖住了');
+      }
+    }
+  }
+
+  // 最多 3 句，按优先级保留（同优先级保持原有先后）
+  collected.sort(function(a, b) { return a.p - b.p; });
+  return collected.slice(0, 3).map(function(x) { return x.t; });
 }
 
 function generatePlayerStatsNew(attrs, gameResult, isPlayoff, gameCtx) {
@@ -8343,6 +8556,19 @@ function renderPlayoffGameBrief(gameEntry, teamA, teamB, isMySeries, roundName, 
     statsLine = `<div style="font-size:9px;color:var(--text-dim);margin-top:2px;">${stats.pts}分 ${stats.reb}板 ${stats.ast}助 · ${stats.fgm}-${stats.fga} (${pct}%)</div>`
       + (chaseNote ? `<div style="font-size:9px;color:var(--orange);margin-top:1px;">${chaseNote}</div>` : '');
   }
+
+  // 赛后文案（与常规赛共用 buildPostGameLines）：
+  // 绝杀/反绝杀/加时/对手表现都来自真实发生的事件与 boxScore。
+  // gameEntry.narrative 在生成时就算好存下，避免每次重绘都换一句。
+  let narrativeHtml = '';
+  if (stats) {
+    const lines = gameEntry.narrative || [];
+    if (lines.length) {
+      narrativeHtml = '<div style="flex-basis:100%;padding:0 0 0 2px;">'
+        + lines.map((l) => '<div style="font-size:10px;color:var(--orange);line-height:1.5;margin-top:2px;">' + l + '</div>').join('')
+        + '</div>';
+    }
+  }
   
   const brief = document.createElement('div');
   brief.style.cssText = `
@@ -8357,6 +8583,7 @@ function renderPlayoffGameBrief(gameEntry, teamA, teamB, isMySeries, roundName, 
     <span style="font-family:var(--font-display);font-size:14px;font-weight:700;color:${gameEntry.suspended ? '#000' : (gameEntry.won ? 'var(--green)' : 'var(--red)')};">${myScore}-${oppScore}</span>
     <span style="font-size:10px;color:var(--text-dim);flex:1;">G${gameEntry.game} vs ${getTeamName(oppName)}${gameEntry.ot ? ' · '+(gameEntry.ot>1?gameEntry.ot+'OT':'OT') : ''}${gameEntry.suspended ? (gameEntry.skipReason === 'injury' ? ' · 🏥 伤病' : ' · 🔇 禁赛') : ''}${gameEntry.playedThroughInjury ? ' · 🏥 带伤出战' : ''}</span>
     ${gameEntry.suspended ? '' : statsLine}
+    ${gameEntry.suspended ? '' : narrativeHtml}
     <span style="font-size:16px;color:var(--text-muted);">›</span>
   `;
   // 点击查看详情
@@ -8465,7 +8692,7 @@ function simOnePlayoffGame(round, seriesIdx, teamA, teamB, isMySeries, gameNum, 
       maybeWorsenInjuryAfterPlaying(skipEv, severity);
       setTimeout(function() {
         simOnePlayoffGame(round, seriesIdx, teamA, teamB, isMySeries, gameNum + 1, hurtNewWinsA, hurtNewWinsB, seriesGames, userGameStats, roundName, onDone);
-      }, 600);
+      }, SIM_PACE.playoffGame);
     };
     if (isMySeries && skipReason === 'injury' && shouldOfferPlayThroughInjury('po-season', false)) {
       showPlayThroughInjuryModal({
@@ -8497,6 +8724,12 @@ function simOnePlayoffGame(round, seriesIdx, teamA, teamB, isMySeries, gameNum, 
     // 把系列赛局势交给时间模型：轮次越深、越接近淘汰，你打得越久
     const stats = generatePlayerStatsNew(STATE.attrs, gameResult, true, { round: round, seriesWins: winsA, seriesLosses: winsB, gameNum: gameNum });
     gameEntry.myStats = stats;
+    // 赛后文案在这里就算好存下来：渲染可能发生多次，随机抽的文案不能每次都换
+    gameEntry.narrative = buildPostGameLines(stats, {
+      won: won, myScore: finalA, oppScore: finalB, oppTeam: teamB, gameResult: gameResult,
+      isPlayoff: true, round: roundName, seriesWins: newWinsA, seriesLosses: newWinsB,
+      clinch: (newWinsA >= 4 || newWinsB >= 4),
+    });
     userGameStats.push(stats);
     
     const po = STATE.season.playoffStats;
@@ -8514,7 +8747,7 @@ function simOnePlayoffGame(round, seriesIdx, teamA, teamB, isMySeries, gameNum, 
   
   seriesGames.push(gameEntry);
   
-  // 下一场（延迟600ms让用户看到简报动画，然后检测随机事件）
+  // 下一场（留出读简报的时间，然后才检测随机事件）
   setTimeout(function() {
     // ★ 赛后检测随机事件（仅限用户系列赛，简报显示完后才触发）
     if (isMySeries) {
@@ -8530,7 +8763,7 @@ function simOnePlayoffGame(round, seriesIdx, teamA, teamB, isMySeries, gameNum, 
             showEventModal(poEvData, function() {
               setTimeout(function() {
                 simOnePlayoffGame(round, seriesIdx, teamA, teamB, isMySeries, gameNum + 1, newWinsA, newWinsB, seriesGames, userGameStats, roundName, onDone);
-              }, 600);
+              }, SIM_PACE.playoffGame);
             });
             return;
           }
@@ -8538,7 +8771,7 @@ function simOnePlayoffGame(round, seriesIdx, teamA, teamB, isMySeries, gameNum, 
       } catch(ex) {}
     }
     simOnePlayoffGame(round, seriesIdx, teamA, teamB, isMySeries, gameNum + 1, newWinsA, newWinsB, seriesGames, userGameStats, roundName, onDone);
-  }, isMySeries ? 600 : 50);
+  }, isMySeries ? SIM_PACE.playoffGame : 50);
 }
 
 /** 主要入口：模拟季后赛系列赛（用户系列赛一场一场弹） */
