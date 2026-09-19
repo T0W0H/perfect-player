@@ -7338,20 +7338,28 @@ function buildPostGameLines(stats, ctx) {
     }
   }
 
-  // 常规赛要短：同一条与剧情弹窗共用接口，长篇留给定季后的单场简报。
-  var maxLines = ctx.maxLines != null ? ctx.maxLines : (ctx.isPlayoff ? 3 : 2);
+  // 句数不因常规赛/季后赛而不同：该说的都说。
+  // 流畅度靠“弹窗概率”控制，不靠砍文案——事实发生了就得记下来，
+  // 只是值不值得停下来看，另有判断（见 getRegularGameSpotlight）。
+  var maxLines = ctx.maxLines != null ? ctx.maxLines : 3;
   collected.sort(function(a, b) { return a.p - b.p; });
   return collected.slice(0, maxLines).map(function(x) { return x.t; });
 }
 
 /**
  * 常规赛「高光场次」：值得单独弹一次剧情的比赛。
- * 只有真的发生了大场面才返回（绝杀 / 加时 / 爆冷 / 三双 / 40+），
- * 再加冷却与每季上限——82 场要是场场弹窗，那就成折磨了。
+ *
+ * 两层判断，分开理解：
+ *   1. 事实层：真的发生了大场面（绝杀/加时/爆冷/三双/40+）——这层不掷骰子，
+ *      发生了就写进 gameEntry.narrative、点阵图 title、本季高光，一场不漏。
+ *   2. 播报层：值不值得停下来弹窗。常规赛本来就要快，所以这一层**掷骰子**，
+ *      再叠冷却与每季上限，避免“打几场就被弹窗卡一下”。
+ * 改“多久弹一次”只改 REGULAR_SPOTLIGHT，不要去动文案。
  */
 var REGULAR_SPOTLIGHT = {
-  cooldownGames: 4,     // 两次弹窗至少隔 4 场
-  maxPerSeason: 12,     // 一季最多弹 12 次
+  chance: 0.3,          // 符合条件时真正弹窗的概率
+  cooldownGames: 3,     // 两次弹窗至少隔 3 场（防连击）
+  maxPerSeason: 8,      // 一季最多弹 8 次
   bigScore: 40,         // 得分爆发门槛
 };
 
@@ -7362,6 +7370,8 @@ function getRegularGameSpotlight(stats, gameResult, gameNum) {
   if (spot.count >= REGULAR_SPOTLIGHT.maxPerSeason) return null;
   var num = Number(gameNum) || 0;
   if (num - spot.lastGame < REGULAR_SPOTLIGHT.cooldownGames) return null;
+  // 播报层先掷骰子：没过就直接跳过，不消耗冷却
+  if (Math.random() > REGULAR_SPOTLIGHT.chance) return null;
 
   var shape = readGameShape(gameResult);
   var won = shape.won;

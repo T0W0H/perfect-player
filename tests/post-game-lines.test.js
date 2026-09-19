@@ -206,13 +206,16 @@ const spotCode = [
   extractFunction(html, 'buildPostGameLines'),
   html.slice(html.indexOf('var REGULAR_SPOTLIGHT'), html.indexOf('function getRegularGameSpotlight')),
   extractFunction(html, 'getRegularGameSpotlight'),
-  'return { spot: getRegularGameSpotlight, reset: function() { STATE.season = {}; } };',
+  'return { spot: getRegularGameSpotlight, reset: function() { STATE.season = {}; }, tune: function(o) { Object.assign(REGULAR_SPOTLIGHT, o); } };',
 ].join('\n');
 const spotApi = new Function(spotCode)();
 const getRegularGameSpotlight = spotApi.spot;
 const resetSpotlight = spotApi.reset;
+// 测试里把概率拉成 1，专测“事实层 + 冷却/上限”；概率本身另有一项单独验
+const forceSpotlight = (on) => spotApi.tune({ chance: on ? 1 : 0 });
 
 check('常规赛高光弹窗：结构与剧情弹窗接口一致', () => {
+  resetSpotlight(); forceSpotlight(true);
   const spot = getRegularGameSpotlight(stats({}), Object.assign(game({ my: 112, opp: 110, events: [CLUTCH_HOLD] }), { oppTeam: 'BOS' }), 10);
   assert.ok(spot, '绝杀应该触发弹窗');
   ['emoji', 'title', 'body', 'detail', 'btnText'].forEach((k) => {
@@ -224,12 +227,32 @@ check('常规赛高光弹窗：结构与剧情弹窗接口一致', () => {
 });
 
 check('加时绝杀：标题会改成“加时绝杀”', () => {
-  resetSpotlight();
+  resetSpotlight(); forceSpotlight(true);
   const spot = getRegularGameSpotlight(stats({}), Object.assign(game({ my: 120, opp: 118, ot: 1, events: [CLUTCH_HOLD] }), { oppTeam: 'BOS' }), 12);
   assert.ok(spot && spot.title.indexOf('加时绝杀') >= 0, '应写明加时绝杀：' + (spot && spot.title));
 });
 
+check('播报层掷骰子：事实成立也不一定弹（流畅度优先）', () => {
+  resetSpotlight(); forceSpotlight(false);
+  const ctx = Object.assign(game({ my: 112, opp: 110, events: [CLUTCH_HOLD] }), { oppTeam: 'BOS' });
+  assert.equal(getRegularGameSpotlight(stats({}), ctx, 10), null, '概率没过就不该弹');
+  // 但事实层照旧：文案仍然写进比赛记录
+  const lines = buildPostGameLines(stats({}), {
+    won: true, oppTeam: 'BOS', gameResult: ctx,
+  });
+  assert.ok(lines.length > 0 && lines[0].indexOf('守住胜局') >= 0, '文案不能因为不弹窗就消失：' + lines.join(' / '));
+});
+
+check('概率不会消耗冷却（跳过的场次不影响下一次）', () => {
+  resetSpotlight(); forceSpotlight(false);
+  const ctx = Object.assign(game({ my: 112, opp: 110, events: [CLUTCH_HOLD] }), { oppTeam: 'BOS' });
+  getRegularGameSpotlight(stats({}), ctx, 10);   // 没弹
+  forceSpotlight(true);
+  assert.ok(getRegularGameSpotlight(stats({}), ctx, 11), '第 10 场没弹，第 11 场应还能弹（冷却没被误消耗）');
+});
+
 check('普通比赛不弹窗（不能场场弹）', () => {
+  resetSpotlight(); forceSpotlight(true);
   const plain = getRegularGameSpotlight(stats({ pts: 18, reb: 4, ast: 3 }), Object.assign(game({ my: 104, opp: 98 }), { oppTeam: 'BOS' }), 5);
   assert.equal(plain, null, '平凡的一场不该打扰玩家');
 });
@@ -237,46 +260,46 @@ check('普通比赛不弹窗（不能场场弹）', () => {
 check('三双 / 40+ / 双加时 / 爆冷 都能触发', () => {
   const ctx = (g) => Object.assign(g, { oppTeam: 'BOS' });
   // 每例前重置：它们共用同一份冷却状态（说明冷却确实生效）
-  resetSpotlight();
+  resetSpotlight(); forceSpotlight(true);
   assert.ok(getRegularGameSpotlight(stats({ pts: 20, reb: 12, ast: 11 }), ctx(game({ my: 110, opp: 100 })), 10), '三双应触发');
-  resetSpotlight();
+  resetSpotlight(); forceSpotlight(true);
   assert.ok(getRegularGameSpotlight(stats({ pts: 44, fgm: 17, fga: 28 }), ctx(game({ my: 118, opp: 110 })), 20), '40+ 应触发');
-  resetSpotlight();
+  resetSpotlight(); forceSpotlight(true);
   assert.ok(getRegularGameSpotlight(stats({ pts: 22 }), ctx(game({ my: 130, opp: 128, ot: 2 })), 30), '双加时应触发');
-  resetSpotlight();
+  resetSpotlight(); forceSpotlight(true);
   assert.ok(getRegularGameSpotlight(stats({ pts: 25 }), ctx(game({ my: 108, opp: 104, events: [UPSET] })), 40), '爆冷应触发');
   resetSpotlight();
 });
 
-check('冷却：两次弹窗之间至少隔 4 场', () => {
-  resetSpotlight();
+check('冷却：两次弹窗之间至少隔 3 场', () => {
+  resetSpotlight(); forceSpotlight(true);
   const ctx = Object.assign(game({ my: 112, opp: 110, events: [CLUTCH_HOLD] }), { oppTeam: 'BOS' });
   assert.ok(getRegularGameSpotlight(stats({}), ctx, 10), '第 10 场应该弹');
   assert.equal(getRegularGameSpotlight(stats({}), ctx, 11), null, '紧接着的第 11 场应被冷却拦住');
-  assert.equal(getRegularGameSpotlight(stats({}), ctx, 13), null, '还差一场也不弹');
-  assert.ok(getRegularGameSpotlight(stats({}), ctx, 14), '隔满 4 场后可以再弹');
+  assert.equal(getRegularGameSpotlight(stats({}), ctx, 12), null, '还差一场也不弹');
+  assert.ok(getRegularGameSpotlight(stats({}), ctx, 13), '隔满 3 场后可以再弹');
 });
 
-check('每季上限：超过 12 次就不再弹', () => {
-  resetSpotlight();
+check('每季上限：超过 8 次就不再弹', () => {
+  resetSpotlight(); forceSpotlight(true);
   const ctx = Object.assign(game({ my: 112, opp: 110, events: [CLUTCH_HOLD] }), { oppTeam: 'BOS' });
   let fired = 0;
   for (let g = 1; g <= 82; g += 5) {
     if (getRegularGameSpotlight(stats({}), ctx, g)) fired++;
   }
-  assert.equal(fired, 12, '一季最多 12 次，实际 ' + fired);
+  assert.equal(fired, 8, '一季最多 8 次，实际 ' + fired);
 });
 
-check('常规赛文案更短：最多 2 句（季后赛仍是 3）', () => {
+check('文案不再因常规赛/季后赛而变短（句数一致）', () => {
   const heavy = stats({ pts: 45, reb: 12, ast: 11, stl: 4, blk: 3, fgm: 18, fga: 28 });
   const ctx = {
     won: true, oppTeam: 'BOS',
     gameResult: game({ my: 128, opp: 126, ot: 1, events: [CLUTCH_HOLD], oppBox: [{ name: 'X', cname: '某某', pts: 40, reb: 5, ast: 5 }] }),
   };
   const reg = buildPostGameLines(heavy, Object.assign({ isPlayoff: false }, ctx));
-  assert.ok(reg.length <= 2, '常规赛最多 2 句，实际 ' + reg.length + '：' + reg.join(' / '));
   const po = buildPostGameLines(heavy, Object.assign({ isPlayoff: true, seriesWins: 3, seriesLosses: 3 }, ctx));
-  assert.ok(po.length <= 3 && po.length >= reg.length, '季后赛可以到 3 句，实际 ' + po.length);
+  assert.equal(reg.length, po.length, '常规赛与季后赛句数应一致：' + reg.length + ' vs ' + po.length);
+  assert.ok(reg.length <= 3, '上限 3 句，实际 ' + reg.length);
 });
 
 console.log('\n全部通过：' + passed + ' 项');
