@@ -55,8 +55,9 @@ const chaseSource = [
   extractFunction(html, 'completeTripleDoubleLine'),
   extractFunction(html, 'applyTripleDoubleChase'),
   extractFunction(html, 'getTripleChaseNote'),
-  extractFunction(html, 'getTripleChaseMoments'),
-  'return { STATE:STATE, TRIPLE_CHASE:TRIPLE_CHASE, getTripleChaseCfg:getTripleChaseCfg, isTripleChaseEligible:isTripleChaseEligible, isTripleChaseShape:isTripleChaseShape, completeTripleDoubleLine:completeTripleDoubleLine, applyTripleDoubleChase:applyTripleDoubleChase, getTripleChaseNote:getTripleChaseNote, getTripleChaseMoments:getTripleChaseMoments };',
+  extractFunction(html, 'getSixthManGameNote'),
+  extractFunction(html, 'getSeasonHighlightMoments'),
+  'return { STATE:STATE, TRIPLE_CHASE:TRIPLE_CHASE, getTripleChaseCfg:getTripleChaseCfg, isTripleChaseEligible:isTripleChaseEligible, isTripleChaseShape:isTripleChaseShape, completeTripleDoubleLine:completeTripleDoubleLine, applyTripleDoubleChase:applyTripleDoubleChase, getTripleChaseNote:getTripleChaseNote, getSeasonHighlightMoments:getSeasonHighlightMoments };',
 ].join('\n');
 
 const ATTRS = ['threePT','MID','FIN','DNK','HAN','PAS','PDEF','IDEF','BLK','REB','ATH','STR','CLU'];
@@ -204,24 +205,27 @@ check('赛后文案：没触发就是空，触发了带 🔥 与补齐说明', (
 });
 
 check('三双时刻榜：只挑出真的追成三双的场次，且从最近往前', () => {
+  // 旧接口 getTripleChaseMoments / renderTripleChaseBlock 已被
+  // getSeasonHighlightMoments / renderSeasonHighlights 取代（本季高光 = 三双 + 第六人代表作），
+  // 这里改成测活着的那个，否则测试会对着已经不存在的代码喊过。
   api.STATE.season = { games: [
     { game: { gameNum: 1, opponent: 'BOS' }, result: { won: true }, stats: makeLine({ pts: 30, reb: 12, ast: 11 }) },
     { game: { gameNum: 2, opponent: 'NYK' }, result: { won: false }, stats: Object.assign(makeLine({ pts: 24, reb: 11, ast: 10 }), { _tripleChase: 'chase', _tripleChaseLifted: '助攻' }) },
     { game: { gameNum: 3, opponent: 'MIA' }, result: { won: true }, stats: Object.assign(makeLine({ pts: 18, reb: 10, ast: 10 }), { _tripleChase: 'night', _tripleChaseLifted: '得分' }) },
   ] };
-  const moments = api.getTripleChaseMoments(5);
+  const moments = api.getSeasonHighlightMoments(5);
   assert.equal(moments.length, 2, '没有触发的比赛不算三双时刻');
   assert.equal(moments[0].gameNum, 3, '最近的排最前');
   assert.equal(moments[1].gameNum, 2);
   assert.equal(moments[0].won, true);
   assert.ok(moments[0].note.indexOf('🔥') === 0);
 
-  const limited = api.getTripleChaseMoments(1);
+  const limited = api.getSeasonHighlightMoments(1);
   assert.equal(limited.length, 1);
   assert.equal(limited[0].gameNum, 3);
 
   api.STATE.season = null;
-  assert.deepEqual(api.getTripleChaseMoments(), []);
+  assert.deepEqual(api.getSeasonHighlightMoments(), []);
 });
 
 console.log('\n全部通过：' + passed + ' 项');

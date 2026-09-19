@@ -75,6 +75,43 @@ python -m http.server 8035
 `tests/solo-core.test.js` 守住判定边界（88 分线、_isUser 不算队友球星、空名单不下结论、
 旧存档兼容）、留队≠单核、以及新文案的占位符体检（无冠时不许引用 `{冠军线}`）。
 
+## 荣誉墙：数据王单独成组
+
+「生涯数据 → 荣誉墙」底部的生涯总计以前是一行 `N×奖项` 按获得先后混排，
+赛季一多就看不出拿过几次得分王。现在按固定顺序分成两行：
+
+- `荣誉：`总冠军 / FMVP / MVP / DPOY / 最佳阵容 / 最佳防守阵容 / 全明星 / 最佳第六人 …（`HONOR_TALLY_ORDER`）
+- `数据王：`得分王 / 篮板王 / 助攻王 / 三分王 / 抢断王 / 盖帽王（`DATA_KING_LABELS`）
+
+旧存档里不在两张表里的自定义标签会兜底接在荣誉行后面，不会丢。
+数据王本来就写在 `c.honors` 里（`saveCurrentSeasonToCareer` 只看 `isUser`），
+`tests/career-honors.test.js` 守住这条链。
+
+## 清扫工具（只报告，不直接删）
+
+```bash
+node tools/find_dead_assets.mjs      # 没有任何地方引用的资源文件
+node tools/find_dead_functions.mjs   # 定义了但没人调用的函数
+node tools/remove_dead_functions.mjs # 删死函数（默认 dry-run，--write 才真删）
+```
+
+`remove_dead_functions.mjs` 有两道安全网，不过就不写文件：删完先跑一遍内联脚本
+语法检查，再对一下分节标题（`// ==== 段落名 ====`）的数量——**分节标题是多个测试的
+切片锚点**，少一个就会让一批测试找不到引擎切片。它也不会把分节标题当函数注释吃掉。
+
+已经清掉的：
+
+- 7 个从未被加载的脚本 / 样式（`sim.js` 673KB、`text-pools.js` 504KB、`core.js`、
+  `perfect-player.js`、`text-pools-extra.js`、`text-pools-long.js`、`perfect-player.css`）
+- `assets/js/hupu/script-04-*.js`（精灵图头像，6 个导出全是零引用，每次却要下载 27KB）
+- 47 个死函数（含 `showCareerHonors` 那份没人跳转的重复荣誉页、
+  `getOssClient` 里硬编码的第三方凭据）
+- `assets/data/names.json`（117KB 随机姓名库，新秀已改用真实历史球员）
+
+删死函数会把只被**测试**引用的函数也当成死的（比如 `getTripleChaseMoments`），
+所以遇到测试报「找不到函数」时，先确认那个功能是不是已经被新接口取代、
+再把测试改指向活着的那个，而不是把旧函数加回来。
+
 ## 开发约定
 
 - 改完功能先验证：逐个跑 `tests/*.test.js`，再跑一遍内联脚本语法检查

@@ -29,7 +29,8 @@ console.log('首屏性能回归测试');
 
 check('所有外部脚本都有 defer（顺序保留，解析不阻塞）', () => {
   const tags = [...html.matchAll(/<script([^>]*)src="([^"]+)"([^>]*)>/g)];
-  assert.ok(tags.length >= 12, '外部脚本应有 12 个，实际 ' + tags.length);
+  // script-04（精灵图头像）无人引用，已连文件一起删除，所以只剩 11 个
+  assert.ok(tags.length >= 11, '外部脚本应至少有 11 个，实际 ' + tags.length);
   const sync = tags.filter((m) => !/defer/.test(m[1] + m[3]));
   assert.equal(sync.length, 0, '还有同步脚本：' + sync.map((m) => m[2]).join(', '));
 });

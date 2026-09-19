@@ -1685,14 +1685,8 @@ body{font-family:var(--font-body);background:var(--bg);color:var(--text);min-hei
     <div id="career-stats-content" style="padding:0 10px 20px;"></div>
   </div>
 
-  <!-- ====== 荣誉墙 ====== -->
-  <div class="screen" id="screen-career-honors">
-    <div class="section-title">
-      <h1>🏆 荣誉墙</h1>
-      <div class="sub" id="career-honors-sub"></div>
-    </div>
-    <div id="career-honors-content" style="padding:0 10px 20px;"></div>
-  </div>
+  <!-- 荣誉墙并入了生涯数据的第二个页签（showCareerStats(1)），
+       这里原来的 screen-career-honors 整页没人再跳转，已删除。 -->
 
   <!-- ====== 训练营 ====== -->
   <div class="screen" id="screen-training">
@@ -1711,7 +1705,6 @@ body{font-family:var(--font-body);background:var(--bg);color:var(--text);min-hei
   <div style="text-align:center;padding:12px 16px 8px;font-size:10px;color:var(--text-muted);line-height:1.4;">本活动为球迷制作，非NBA官方活动</div>
 
 </div>
-
 
 <!-- ====== 海报弹窗 ====== -->
 <canvas id="posterCanvas" style="display:none"></canvas>
@@ -1931,7 +1924,6 @@ function getPlayerHeadshotStyle(playerName, displaySize) {
 <script defer src="assets/js/current-player-ratings-2026.js?v=20260919-rerating"></script>
 <script defer src="assets/js/hupu/script-02-2678-gd4jvxrc-upload-1783494754597-15.js"></script>
 <script defer src="assets/js/hupu/script-03-2678-456sfprc-upload-1783494754597-18.js"></script>
-<script defer src="assets/js/hupu/script-04-2678-mdo4zerc-upload-1783494754597-21.js"></script>
 <script defer src="assets/js/hupu/script-05-2678-qlg35lrc-upload-1783494754597-24.js"></script>
 <script>
 // ── 中文名修正 ──
@@ -2546,7 +2538,7 @@ function initAttrTables() {
 }
 
 function attrCN(key) { return ATTR_CN[key] || key; }
-function attrDesc(key) { return ATTR_DESC[key] || ''; }
+
 function getGrade(val) { return GRADE.getGrade(val); }
 function getOvrGrade(ovr) { return GRADE.getOvrGrade(ovr); }
 
@@ -3352,24 +3344,6 @@ function pickPlayerAt(drawIndex) {
   renderLeftAttrs();
 }
 
-function pickPlayer(name) {
-  if (STATE._locking || !STATE.currentTeam) return;
-  const players = Array.isArray(STATE._drawPlayers) && STATE._drawPlayers.length
-    ? STATE._drawPlayers : getBuildPlayerPool(STATE.currentTeam);
-  const player = players.find(p => p.name === name);
-  if (!player) return;
-  
-  STATE.selectedPlayer = player;
-  
-  document.querySelectorAll('.br-player').forEach(r => {
-    r.classList.toggle('selected', r.getAttribute('data-draw-index') != null
-      ? STATE._drawPlayers[Number(r.getAttribute('data-draw-index'))] === player
-      : r.textContent.includes(player.cname || player.name));
-  });
-  
-  renderLeftAttrs();
-}
-
 function lockAttr(key) {
   if (STATE._locking || !STATE.selectedPlayer || STATE.attrs[key] !== null) return;
   STATE._locking = true;
@@ -3415,86 +3389,6 @@ function lockAttr(key) {
 
 function showToast(msg) {
   // Toast 已关闭
-}
-
-function unselectPlayer() {
-  STATE.selectedPlayer = null;
-  document.querySelectorAll('.roster-row').forEach(r => r.classList.remove('selected'));
-  html('player-info-area').innerHTML = '';
-  renderAttrSlots();
-}
-
-function confirmLock(playerName, attrKey, value) {
-  // 防止连点
-  if (STATE._locking) return;
-  STATE._locking = true;
-  
-  // 记录锁定
-  STATE.attrs[attrKey] = value;
-  STATE.attrSlots[attrKey] = { player: playerName, team: STATE.currentTeam, value };
-  STATE.lockedCount++;
-  STATE.usedPlayers.push(playerName);
-  STATE.selectedPlayer = null;
-  
-  // 清除球员信息
-  html('player-info-area').innerHTML = '';
-  
-  // 更新 UI
-  renderAttrSlots();
-  
-  if (STATE.lockedCount >= 13) {
-    revealPlayer();
-    return;
-  }
-  
-  // 显示成功提示并自动下一轮
-  html('roster-area').innerHTML = `<div class="locked-msg">
-    <div class="locked-icon">✅</div>
-    <div class="locked-title">${attrCN(attrKey)}（${value}）来自 ${playerName}</div>
-    <div class="locked-sub">${13 - STATE.lockedCount > 0 ? `剩余 ${13 - STATE.lockedCount} 项属性` : '全部属性已锁定！'} · 自动进入下一轮...</div>
-  </div>`;
-  
-  setTimeout(() => {
-    STATE._locking = false;
-    if (STATE.lockedCount < 13) {
-      html('roster-area').innerHTML = '';
-      spinTeam();
-    }
-  }, 1000);
-}
-
-// ==================== 4. 相似球员匹配 ====================
-function findSimilarPlayers(attrs, pos, topN = 3) {
-  const posAvg = SIM_CONFIG.POS_AVG[pos];
-  if (!posAvg) return [];
-  
-  // 用户属性相对位置平均值的偏差向量
-  const userVec = ATTR_KEYS.map(k => (attrs[k] || 50) - (posAvg[k] || 50));
-  const userNorm = Math.sqrt(userVec.reduce((s, v) => s + v * v, 1));
-  
-  // 遍历所有 NBA 球员
-  const scores = [];
-  NBA2K_TEAMS.forEach(team => {
-    (NBA2K_DATA[team] || []).forEach(player => {
-      // 该球员属性相对同一位置平均值的偏差向量
-      const hisVec = ATTR_KEYS.map(k => (parseInt(player[k]) || 50) - (posAvg[k] || 50));
-      const hisNorm = Math.sqrt(hisVec.reduce((s, v) => s + v * v, 1));
-      
-      // 点积
-      let dot = 0;
-      for (let i = 0; i < ATTR_KEYS.length; i++) {
-        dot += userVec[i] * hisVec[i];
-      }
-      
-      // 余弦相似度（偏差向量）
-      const similarity = Math.round((dot / (userNorm * hisNorm)) * 100);
-      scores.push({ player, team, similarity });
-    });
-  });
-  
-  // 按相似度降序排列，取 Top N
-  scores.sort((a, b) => b.similarity - a.similarity);
-  return scores.slice(0, topN);
 }
 
 /**
@@ -3549,6 +3443,10 @@ function findTieredPlayers(attrs, pos) {
   
   return tiers.map(t => t.result).filter(Boolean);
 }
+
+// ==================== 4. 相似球员匹配 ====================
+// （已合并到上面的 matchPlayerArchetype；标题保留作结构分界，
+//   同时是 tests/no-ceiling.test.js 等测试的切片锚点，不要删）
 
 // ==================== 4.5 Archetype 推导匹配 ====================
 /** 同类位置分组：匹配时只找同组球员 */
@@ -3626,21 +3524,6 @@ function matchPlayerArchetype(attrs, topN = 3) {
 }
 
 /** 获取 archetype 的中文分类名称 */
-function getArchCategoryCN(category) {
-  const map = {
-    'shooter': '射手型',
-    'slasher': '突破型',
-    'two_way': '攻防一体',
-    'playmaker': '组织型',
-    'iso_scorer': '单打型',
-    'big': '内线型',
-    'athlete': '运动型',
-    'stretch_big': '空间内线',
-    'skill_creator': '技术流',
-    'all_around': '全能型',
-  };
-  return map[category] || '全能型';
-}
 
 // ==================== 4. 揭幕 ====================
 function revealPlayer() {
@@ -4265,51 +4148,6 @@ function showDraftContractStep(team, done) {
     });
 }
 
-function showDraftPressStep(team, done) {
-  showDraftChoiceModal('draft_press', '新秀发布会',
-    '发布会上，话筒从你面前一个个传过来。有人问你最想证明什么，有人问你对交易流言的看法，还有人问：你觉得自己是新秀里的第几名？',
-    [
-      { label: '谦逊回应', hint: '把期待放低一点', apply: function() {
-        addProfileDelta('mediaTrust', 1);
-        addSeasonMod('mediaPressure', -1, -10, 10);
-        return '你说：我想先证明自己能留在这个联盟。台下有人点头，也有人觉得你太保守。<br><br>效果：媒体好感+1；媒体压力-1。';
-      }},
-      { label: '自信回应', hint: '把目标说出来', apply: function() {
-        addProfileDelta('fame', 1);
-        addProfileDelta('controversy', 1);
-        return '你说：我不只是来打球的，我是来被记住的。第二天，这句话被剪进所有选秀集锦。<br><br>效果：人气+1；争议+1。';
-      }},
-      { label: '沉默寡言', hint: '让表现替你说话', apply: function() {
-        addProfileDelta('fanSupport', 1);
-        addProfileDelta('mediaTrust', -1);
-        return '你回答了每一个问题，但每一句都很短。记者们开始讨论：他是内向，还是高傲？<br><br>效果：球迷支持+1；媒体好感-1。';
-      }}
-    ],
-    function() { showDraftFirstPracticeStep(team, done); });
-}
-
-function showDraftFirstPracticeStep(team, done) {
-  showDraftChoiceModal('draft_first_practice', '教练角色谈话',
-    '教练把你叫进办公室，桌上没有战术板，只有一张轮换表。他说：你想成为谁我知道，但现在球队需要你先做好另一件事。',
-    [
-      { label: '接受定位', hint: '先赢得教练信任', apply: function() {
-        addProfileDelta('coachTrust', 2);
-        return '你说：教练安排什么，我就做好什么。他看了你两秒，在轮换表上写下了你的名字。<br><br>效果：教练信任+2。';
-      }},
-      { label: '争取更多球权', hint: '把野心说清楚', apply: function() {
-        addProfileDelta('coachTrust', -1);
-        addSeasonMod('formVariance', 1, -10, 10);
-        return '你当面说出了自己的想法。教练没有拒绝，只是提醒你：机会要自己挣。<br><br>效果：教练信任-1；状态波动+1。';
-      }},
-      { label: '用表现说话', hint: '少说多做', apply: function() {
-        addProfileDelta('coachTrust', 1);
-        addSeasonMod('formVariance', -1, -10, 10);
-        return '你没有多说，只是提前半小时到训练馆。教练路过时，没有说话，但记住了你的号码。<br><br>效果：教练信任+1；状态波动-1。';
-      }}
-    ],
-    function() { finalizeDraft(team, done); });
-}
-
 function finalizeDraft(team, done) {
   var p = STATE._draftPending;
   var c = STATE.career;
@@ -4661,22 +4499,9 @@ function getConference(team) {
   return 'EAST';
 }
 
-function getDivision(team) {
-  for (const [div, teams] of Object.entries(SIM_CONFIG.DIVISIONS)) {
-    if (teams.includes(team)) return div;
-  }
-  return null;
-}
-
 function getTeamName(team) { return SIM_CONFIG.TEAM_NAMES[team] || team; }
 
 /** 查找球员所属球队缩写 */
-function getPlayerTeam(player) {
-  for (const team of NBA2K_TEAMS) {
-    if (NBA2K_DATA[team] && NBA2K_DATA[team].includes(player)) return team;
-  }
-  return null;
-}
 
 /** 获取球员显示名：优先中文名（取-后部分），无中文名则取逗号后的名 */
 function getPlayerDisplayName(playerName) {
@@ -4745,17 +4570,6 @@ function getTeamLogo(team, size) {
   if (!window.TEAM_LOGOS || !window.TEAM_LOGOS[team]) return '';
   const s = size || 20;
   return `<img class="team-logo" src="${window.TEAM_LOGOS[team]}" style="width:${s}px;height:${s}px;vertical-align:middle;border-radius:4px;" alt="${team}">`;
-}
-
-function toggleTeamLogos() {
-  window._HIDE_TEAM_LOGOS = !window._HIDE_TEAM_LOGOS;
-  var cur = document.querySelector('.screen.active');
-  if (!cur) return;
-  var id = cur.id;
-  if (id === 'screen-season') { if (typeof quickSimAllGames === 'function') quickSimAllGames(); }
-  else if (id === 'screen-playoffs' && typeof renderPlayoffs === 'function') renderPlayoffs();
-  else if (id === 'screen-results' && typeof showSeasonResults === 'function') showSeasonResults();
-  else if (id === 'screen-awards' && typeof showAwardsScreen === 'function') showAwardsScreen();
 }
 
 /** 获取球队在联盟中的种子排名（1-15） */
@@ -5196,23 +5010,8 @@ function reconcileStandings() {
 // ★ 常规赛排名系统 ============================================
 
 /** 估算球员场均数据（基于属性 + af 系数） */
-function estimatePlayerStats(player) {
-  var f = function(v) { return af(parseInt(v) || 50); };
-  var pos = (player.pos || 'SF').split('/')[0].trim();
-  var pts = (f(player.FIN) * 0.4 + f(player.MID) * 0.3 + f(player.threePT) * 0.3) * 22 + 2;
-  var reb = f(player.REB) * (pos === 'C' ? 14 : pos === 'PF' ? 10 : 6) + 1;
-  var ast = f(player.PAS) * (pos === 'PG' ? 10 : pos === 'SG' ? 6 : 4) + 1;
-  var stl = f(player.PDEF) * 3 + 0.3;
-  var blk = f(player.BLK) * (pos === 'C' ? 4 : pos === 'PF' ? 2.5 : 0.5) + 0.2;
-  return { pts: Math.round(pts * 10) / 10, reb: Math.round(reb * 10) / 10, ast: Math.round(ast * 10) / 10, stl: Math.round(stl * 10) / 10, blk: Math.round(blk * 10) / 10, pos: pos, ovr: parseInt(player.ovr) || 50 };
-}
 
 /** 获取用户场均数据 */
-function getUserAvg() {
-  var ps = STATE.season.playerStats;
-  var gp = ps.games || 1;
-  return { pts: Math.round(ps.pts / gp * 10) / 10, reb: Math.round(ps.reb / gp * 10) / 10, ast: Math.round(ps.ast / gp * 10) / 10, stl: Math.round(ps.stl / gp * 10) / 10, blk: Math.round(ps.blk / gp * 10) / 10, pos: STATE.position, ovr: STATE.finalOVR };
-}
 
 function getPlayerAwardStreak(player, act) {
   return player && player._awardStreak ? (player._awardStreak[act] || 0) : 0;
@@ -5241,11 +5040,6 @@ function scaleTickets(base, mul) {
   var whole = Math.floor(exact);
   if (whole < exact && Math.random() < (exact - whole)) whole++;
   return whole;
-}
-
-function addPlayerAwardStreak(player, act) {
-  player._awardStreak = player._awardStreak || {};
-  player._awardStreak[act] = (player._awardStreak[act] || 0) + 1;
 }
 
 function getUserPlayerObject() {
@@ -5290,14 +5084,6 @@ function getMvpStarAllNbaStart(p) {
   if (!p) return null;
   var idx = MVP_STAR_NAMES.indexOf(p.cname);
   return idx >= 0 ? MVP_STAR_ALLNBA_START[idx] : null;
-}
-
-function getPlayerEnterYear(p) {
-  if (p && p._enterYear) return p._enterYear;
-  var age = p ? getLeaguePlayerAge(p) : 22;
-  var y = 2025 + ((STATE.career && STATE.career.seasonCount) || 0);
-  if (p && typeof age === 'number' && age > 0) p._enterYear = y - (age - 19);
-  return (p && p._enterYear) || y;
 }
 
 function findPlayerByIdentity(nameEN, nameCN) {
@@ -6174,11 +5960,6 @@ function showAwardsScreen() {
   }, 1500);
 }
 
-// ★ 实验性：82 场赛果点阵图
-function renderTripleChaseBlock(limit) {
-  return renderSeasonHighlights(limit);
-}
-
 /** 本季高光：三双时刻 + 第六人代表作（从最近一场往前） */
 function getSeasonHighlightMoments(limit) {
   var games = (STATE.season && STATE.season.games) || [];
@@ -6368,10 +6149,6 @@ function canPlayPosition(playerPos, targetPos) {
 }
 
 /** 获取球员显示位置（给UI用） */
-function getPositionDisplay(posStr) {
-  if (!posStr) return '—';
-  return posStr;
-}
 
 /** 按位置计算球队首发+轮换（用户参与规划；未首发则第六人） */
 function calcTeamLineup(team) {
@@ -7300,25 +7077,6 @@ function getTripleChaseNote(stats) {
 }
 
 /** 本季追成三双的场次（从最近一场往前数） */
-function getTripleChaseMoments(limit) {
-  var games = (STATE.season && STATE.season.games) || [];
-  var out = [];
-  var max = limit || 3;
-  for (var i = games.length - 1; i >= 0 && out.length < max; i--) {
-    var entry = games[i];
-    var st = entry && entry.stats;
-    if (!st || !st._tripleChase) continue;
-    out.push({
-      index: i,
-      gameNum: (entry.game && entry.game.gameNum) || (i + 1),
-      opponent: entry.game ? entry.game.opponent : '',
-      won: !!(entry.result && entry.result.won),
-      stats: st,
-      note: getTripleChaseNote(st),
-    });
-  }
-  return out;
-}
 
 /** 生成你的球员数据：分钟、球权、出手类型和每项数据分别由对应属性驱动。 */
 /** 生成你的球员数据：分钟、球权、出手类型和每项数据分别由对应属性驱动。 */
@@ -7479,24 +7237,6 @@ window.samplePerfectPlayerStatProfile = function(attrs, games, options) {
   return { games:games, position:options.position || oldPosition || 'PG', average:average };
 };
 
-// ==================== 联盟其他比赛模拟 ====================
-function simLeagueDay(daySchedule) {
-  // 只模拟非你参与的比赛
-  daySchedule.forEach(g => {
-    if (g.opponent === undefined) return; // 是你的比赛，已经模拟过了
-    
-    const powerA = calcTeamPowerWithPlayer(g.opponent._team || g.opponent);
-    const powerB = calcTeamPowerWithPlayer(g.opponent === STATE.careerTeam ? g.opponent : null);
-    
-    // 简化模拟：基于实力随机
-    const avgA = (powerA.offense + powerA.defense + powerA.depth) / 3;
-    const avgB = (powerB.offense + powerB.defense + powerB.depth) / 3;
-    const winProb = avgA / (avgA + avgB);
-    
-    // 还需要补充...
-  });
-}
-
 // ==================== 赛季进行 ====================
 
 function updateStreak(team, won) {
@@ -7510,6 +7250,9 @@ function updateStreak(team, won) {
   }
 }
 
+// ==================== 联盟其他比赛模拟 ====================
+// （simLeagueDay 等旧接口已删除；标题保留作结构分界，
+//   同时是 tests/no-ceiling.test.js 等测试的切片锚点，不要删）
 
 /** 处理所有剩余比赛日（赛季结束时调用） */
 function processAllRemainingDays() {
@@ -7910,39 +7653,6 @@ function closeStandingsModal() {
   if (modal) modal.remove();
 }
 
-
-// ==================== Play-In 附加赛 ====================
-function renderPlayIn() {
-  showScreen('screen-playoffs');
-  
-  const conf = getConference(STATE.careerTeam);
-  const sorted = getConferenceSorted(conf);
-  const mySeed = getConferenceSeed(STATE.careerTeam);
-  
-  // 提取附加赛球队 (7-10)
-  const playInTeams = sorted.filter(t => {
-    const s = getConferenceSeed(t.team);
-    return s >= 7 && s <= 10;
-  });
-  
-  // 确定各队角色
-  const seed7 = playInTeams.find(t => getConferenceSeed(t.team) === 7);
-  const seed8 = playInTeams.find(t => getConferenceSeed(t.team) === 8);
-  const seed9 = playInTeams.find(t => getConferenceSeed(t.team) === 9);
-  const seed10 = playInTeams.find(t => getConferenceSeed(t.team) === 10);
-  
-  STATE.season.playInState = {
-    seed7, seed8, seed9, seed10,
-    gameAResult: null,  // 7v8
-    gameBResult: null,  // 9v10
-    gameCResult: null,  // 败7/8 vs 胜9/10
-    isEliminated: false,
-    playoffSeed: null,  // 最终进入季后赛的种子 (7 or 8)
-  };
-  
-  renderPlayInUI();
-}
-
 function renderPlayInUI() {
   const pi = STATE.season.playInState;
   if (!pi) return;
@@ -8176,32 +7886,13 @@ function checkPlayInComplete() {
   return false;
 }
 
+// ==================== Play-In 附加赛 ====================
+// （renderPlayIn 旧渲染接口已删除；附加赛本体在上面的流程里。
+//   标题保留作结构分界与测试锚点。）
+
 // ==================== 赛季结束 ====================
-function endSeason() {
-  const ps = STATE.season.playerStats;
-  const games = ps.games || 1;
-  
-  STATE.season.avgStats = {
-    pts: Math.round(ps.pts / games * 10) / 10,
-    reb: Math.round(ps.reb / games * 10) / 10,
-    ast: Math.round(ps.ast / games * 10) / 10,
-    stl: Math.round(ps.stl / games * 10) / 10,
-    blk: Math.round(ps.blk / games * 10) / 10,
-    tov: Math.round(ps.tov / games * 10) / 10,
-    fgm: Math.round(ps.fgm / games * 10) / 10,
-    fga: Math.round(ps.fga / games * 10) / 10,
-    ftm: Math.round(ps.ftm / games * 10) / 10,
-    fta: Math.round(ps.fta / games * 10) / 10,
-    threeM: Math.round(ps.threeM / games * 10) / 10,
-    threeA: Math.round(ps.threeA / games * 10) / 10,
-    mins: Math.round(ps.mins / games),
-  };
-  
-  calcSeasonAwards();
-  
-  // 赛季结束，转到 MyCard
-  renderMyCard(true);
-}
+// （endSeason 旧接口已删除；赛季结束走 processAllRemainingDays +
+//   showSeasonResults 那条路。标题保留作结构分界与测试锚点。）
 
 // ==================== 季后赛系统（真实排名版）====================
 /** 为指定分区构建季后赛对阵数据结构 */
@@ -8683,10 +8374,6 @@ function switchPlayoffConf(conf) {
 }
 
 /** 通过索引查找系列赛结果并弹窗 */
-function showSeriesResultByIdx(round, seriesIdx, source) {
-  // 已取消弹窗，改用页面刷新
-  renderPlayoffBracketUI();
-}
 
 /** 获取球队在季后赛球队数组中的种子号 */
 function getSeedOf(teams, team) {
@@ -9440,24 +9127,7 @@ function showPlayoffGamePopup(round, seriesIdx, gameIdx) {
     // 按得分排序取前5
     const topHome = [...homeBox].sort((a, b) => b.pts - a.pts).slice(0, 5);
     const topAway = [...awayBox].sort((a, b) => b.pts - a.pts).slice(0, 5);
-    
-    function renderBoxRows(players, label, isHome) {
-      let h = `<div style="margin-top:6px;">
-        <div style="font-size:10px;color:var(--text-dim);margin-bottom:2px;font-weight:600;">${label}</div>`;
-      players.forEach(p => {
-        const isU = p.isUser;
-        h += `<div style="display:flex;gap:2px;padding:2px 0;font-size:9px;border-bottom:1px solid var(--border-light);${isU ? 'background:var(--orange-dim);border-radius:4px;padding:2px 4px;' : ''}">
-          <span style="width:14px;font-size:8px;color:var(--text-muted);">${p.pos || '—'}</span>
-          <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:${isU ? 700 : 400};${isU ? 'color:var(--orange);' : ''}">${p.name}</span>
-          <span style="width:18px;text-align:right;font-weight:600;">${p.pts}</span>
-          <span style="width:14px;text-align:right;">${p.reb}</span>
-          <span style="width:14px;text-align:right;">${p.ast}</span>
-          <span style="width:22px;text-align:right;font-size:8px;">${p.fgm}-${p.fga}</span>
-        </div>`;
-      });
-      h += `</div>`;
-      return h;
-    }
+
     
     boxHtml = '';
   }
@@ -10105,6 +9775,12 @@ function renderHonorBadge(label, emoji, cls) {
 // 数据王（得分/篮板/助攻/三分/抢断/盖帽）同样是赛季荣誉。
 // 以前只有 MVP/DPOY 这些有专属图标，数据王会退化成通用 🏅，看着像“没算进去”。
 var DATA_KING_LABELS = ['得分王', '篮板王', '助攻王', '三分王', '抢断王', '盖帽王'];
+// 生涯总计的展示顺序：先冠军/MVP 这类大荣誉，再防守与阵容，最后个人奖项。
+// 数据王单独一组（见 DATA_KING_LABELS），所以不重复列在这里。
+var HONOR_TALLY_ORDER = [
+  '总冠军', 'FMVP', 'MVP', 'DPOY', '最佳阵容', '最佳防守阵容',
+  '全明星', '最佳第六人', '进步最快球员', '最佳新秀', '最佳新秀阵容',
+];
 var HONOR_EMOJI_RULES = [
   ['总冠军', '🏆'],
   ['总决赛MVP', '👑'], ['FMVP', '👑'], ['MVP', '👑'],
@@ -10169,6 +9845,10 @@ function buildSeasonHonorCards() {
   return '<div class="sr-section"><div class="sr-section-title">🏅 本赛季荣誉</div><div class="sr-honor-grid">' + cards + '</div></div>';
 }
 
+// ==================== 荣誉墙 ====================
+// 荣誉墙并入了「生涯数据」的第二个页签（showCareerStats(1) → renderCareerHonorsTab）。
+// 这里曾经还有一份 showCareerHonors() + screen-career-honors 的独立页面，
+// 功能与 renderCareerHonorsTab 完全重叠、而且没有任何入口能跳到它，已删除。
 function renderCareerHonorsTab() {
   var c = STATE.career;
   var h = '';
@@ -10191,17 +9871,32 @@ function renderCareerHonorsTab() {
       h += '</div>';
     }
   }
+  // 生涯总计：按奖项归类，数据王单独一行。
+  // 以前是一行 N×奖项 按获得先后混排，赛季一多就看不出拿过几次得分王。
   var counts = {};
   c.honors.forEach(function(hh) {
     if (isRookieHonorForLaterSeason(hh)) return;
     counts[hh.label] = (counts[hh.label] || 0) + 1;
   });
-  var sumParts = [];
-  for (var k in counts) {
-    sumParts.push(counts[k] + '×' + k);
+  function tallyParts(order) {
+    var parts = [];
+    order.forEach(function(label) {
+      if (counts[label]) parts.push(counts[label] + '×' + label);
+    });
+    return parts;
   }
-  if (sumParts.length > 0) {
-    h += '<div class="ch-summary">📊 生涯总计：' + sumParts.join(' · ') + '</div>';
+  var majorParts = tallyParts(HONOR_TALLY_ORDER);
+  var kingParts = tallyParts(DATA_KING_LABELS);
+  // 旧存档里的自定义标签（不在两张表里）兜底接在大荣誉后面，不能丢
+  Object.keys(counts).forEach(function(label) {
+    if (HONOR_TALLY_ORDER.indexOf(label) >= 0 || DATA_KING_LABELS.indexOf(label) >= 0) return;
+    majorParts.push(counts[label] + '×' + label);
+  });
+  if (majorParts.length > 0 || kingParts.length > 0) {
+    h += '<div class="ch-summary">📊 生涯总计'
+      + (majorParts.length > 0 ? '<div>荣誉：' + majorParts.join(' · ') + '</div>' : '')
+      + (kingParts.length > 0 ? '<div>数据王：' + kingParts.join(' · ') + '</div>' : '')
+      + '</div>';
   }
   return h;
 }
@@ -10373,54 +10068,6 @@ function closeSeasonDetail(e) {
   if (e && e.target !== e.currentTarget) return;
   var el = document.querySelector('.cs-season-detail-overlay');
   if (el) el.remove();
-}
-
-// ==================== 荣誉墙 ====================
-function showCareerHonors() {
-  showScreen('screen-career-honors');
-  var c = STATE.career;
-  document.getElementById('career-honors-sub').textContent = '生涯共 ' + c.honors.length + ' 项荣誉 · ' + c.seasonCount + ' 个赛季';
-
-  var html = '';
-  if (c.seasons.length === 0) {
-    html += '<div class="ch-empty">🏀 还没有荣誉，快去打比赛吧</div>';
-  } else {
-    for (var i = c.seasons.length - 1; i >= 0; i--) {
-      var s = c.seasons[i];
-      var tn = getTeamName ? getTeamName(s.team) : s.team;
-      var seasHonors = c.honors.filter(function(h) { return h.seasonNum === s.seasonNum && !isRookieHonorForLaterSeason(h); });
-      html += '<div class="ch-season">';
-      html += '<div class="ch-season-header">🏀 ' + getSeasonLabel(s.seasonNum) + ' <span class="ch-team">' + tn + '</span></div>';
-      if (seasHonors.length === 0) {
-        html += '<div style="font-size:12px;color:var(--text-muted);">暂无荣誉</div>';
-      } else {
-        seasHonors.forEach(function(h) {
-          html += renderHonorBadge(h.label, resolveHonorEmoji(h.label, h.emoji), getHonorBadgeClass(h.label));
-        });
-      }
-      html += '</div>';
-    }
-  }
-
-  var counts = {};
-  c.honors.forEach(function(h) {
-    if (isRookieHonorForLaterSeason(h)) return;
-    counts[h.label] = (counts[h.label] || 0) + 1;
-  });
-  var sumParts = [];
-  for (var k in counts) {
-    sumParts.push(counts[k] + '×' + k);
-  }
-  if (sumParts.length > 0) {
-    html += '<div class="ch-summary">📊 生涯总计：' + sumParts.join(' · ') + '</div>';
-  }
-
-  html += '<div style="display:flex;gap:8px;justify-content:center;margin-top:6px;">';
-  html += '<button class="btn btn-primary btn-sm" onclick="showCareerStats()">📊 生涯数据</button>';
-  html += '<button class="btn btn-secondary btn-sm" onclick="showScreen(\'screen-mycard\')">📋 My Card</button>';
-  html += '</div>';
-
-  document.getElementById('career-honors-content').innerHTML = html;
 }
 
 // ==================== 训练营 ====================
@@ -10755,10 +10402,6 @@ function beginOffseason() {
   STATE._offseasonQueue = buildBranchEventQueue('offseason');
   STATE._offseasonEventIdx = 0;
   showNextOffseasonEvent();
-}
-
-function buildOffseasonEventQueue() {
-  return buildBranchEventQueue('offseason');
 }
 
 function getBranchEventSource() {
@@ -11268,10 +10911,6 @@ function renderEventAttributeChanges(changes) {
   return html + '</div>';
 }
 
-function getBranchStage(branchId) {
-  return getBranchState(branchId).stage || 0;
-}
-
 function getBranchNode(branchId) {
   var b = getBranchState(branchId);
   return b.node || 'start';
@@ -11448,24 +11087,6 @@ function isCityTransfer() {
   return city.team !== STATE.careerTeam;
 }
 
-function advanceBranch(branchId, delta, data) {
-  var b = getBranchState(branchId);
-  b.stage = Math.max(0, (b.stage || 0) + (delta || 1));
-  if (data) {
-    Object.keys(data).forEach(function(k) { b[k] = data[k]; });
-  }
-  return b;
-}
-
-function setBranchStage(branchId, stage, data) {
-  var b = getBranchState(branchId);
-  b.stage = Math.max(0, stage || 0);
-  if (data) {
-    Object.keys(data).forEach(function(k) { b[k] = data[k]; });
-  }
-  return b;
-}
-
 function setBranchNode(branchId, node, data) {
   var b = getBranchState(branchId);
   b.node = node || 'start';
@@ -11559,10 +11180,6 @@ function markCareerEventSeen(event, career) {
   var ids = getSeenCareerEventIds(c);
   if (ids.indexOf(event.id) < 0) ids.push(event.id);
   c._seenCareerEventIds = ids;
-}
-
-function getSeenSeasonEventIds(career) {
-  return getSeenCareerEventIds(career);
 }
 
 function hasSeasonEventBeenSeen(event, career) {
@@ -12190,18 +11807,6 @@ function pickOffseasonText(list) {
   return list[Math.floor(Math.random() * list.length)];
 }
 
-function getOffseasonSeasonStartYear() {
-  var n = STATE.career && STATE.career.seasonCount ? STATE.career.seasonCount : 1;
-  return 2025 + n;
-}
-
-function getChinaTournamentName() {
-  var y = getOffseasonSeasonStartYear();
-  if (y % 4 === 0) return '奥运会';
-  if (y % 4 === 3) return '男篮世界杯';
-  return pickOffseasonText(['亚洲杯', '世预赛', '亚运会', '奥运落选赛']);
-}
-
 function countCareerHonor(label) {
   var honors = (STATE.career && STATE.career.honors) || [];
   return honors.filter(function(h) { return (h.label || '').indexOf(label) >= 0 && !isRookieHonorForLaterSeason(h); }).length;
@@ -12286,7 +11891,6 @@ const BRANCH_BIBLE = {
   legacy: { name: '历史地位', layer: 'ending', unlocks: ['jersey_retirement', 'hall_of_fame', 'top100'] },
   post_career: { name: '退役后身份', layer: 'ending', unlocks: [] }
 };
-
 
 const STAGED_BRANCH_EVENTS = [
   {
@@ -16430,37 +16034,6 @@ function decompressText(b64) {
   });
 }
 
-function manualSaveGame(slot) {
-  var snap;
-  try {
-    snap = buildManualSaveSnapshot();
-  } catch(e) {
-    showManualSaveToast('保存失败：' + e.message);
-    return;
-  }
-  var key = MANUAL_SAVE_KEYS[slot - 1];
-  var raw = JSON.stringify(snap);
-  function write(rawStr) {
-    storageSet(key, rawStr).then(function() {
-      var meta = null;
-      try { var parsed = JSON.parse(rawStr); meta = { label: parsed.label || '自动存档', savedAt: parsed.savedAt || 0 }; } catch(e) {}
-      MANUAL_SAVE_META[slot] = meta;
-      renderAfterSaveLoad(snap.screen);
-      renderMenuSavePanel();
-      showManualSaveToast('已保存到存档' + slot + '（' + snap.label + '）');
-    });
-  }
-  if (typeof CompressionStream === 'undefined' || typeof DecompressionStream === 'undefined') {
-    write(raw);
-    return;
-  }
-  compressText(raw).then(function(compressed) {
-    write(JSON.stringify({ c: 1, d: compressed, label: snap.label, savedAt: snap.savedAt }));
-  }, function() {
-    write(raw);
-  });
-}
-
 function autoSaveGame() {
   var c = STATE.career;
   if (!c || c.retired) return;
@@ -16915,21 +16488,6 @@ setTimeout(function() {
   });
   loadCareerArchive(false);
 }, 600);
-
-function calcTrainingBreakdown() {
-  return calcTrainingPointItems().map(function(item) {
-    return item.points > 1 ? (item.label + ' +' + item.points) : item.label;
-  }).join(' + ');
-}
-
-function getAgeInfo(age) {
-  if (age <= 25) return { desc:'成长阶段 — 技术与终结仍有提升空间', penalty:'部分属性随机成长 0~1 点' };
-  if (age <= 30) return { desc:'巅峰阶段 — 小幅状态波动', penalty:'少量属性可能 ±1 点' };
-  if (age <= 33) return { desc:'转型阶段 — 年龄与当前属性开始共同判定回落', penalty:'身体属性优先衰退，高位属性压力更大' };
-  if (age <= 36) return { desc:'老将阶段 — 身体项稳定回落，技术项也可能下降', penalty:'保养仅有概率减免 1 点，不再完全抵消衰退' };
-  if (age <= 39) return { desc:'高龄阶段 — 年龄与属性双重压力明显增强', penalty:'身体项每年回落约 2~4 点，技术项约 1~3 点' };
-  return { desc:'生涯末期 — 最多可坚持到 42 岁赛季', penalty:'高位属性回落更快，保养只能缓冲、不能逆转年龄' };
-}
 
 function renderTrainingAttrs(tp) {
   var pending = STATE._tpPending || {};
@@ -17976,35 +17534,6 @@ var GOAT_HISTORY_COPY = [
 ];
 
 ;
-
-function buildGoatHistoryCopy(r) {
-  var pool = GOAT_HISTORY_COPY;
-  var idx = typeof r.goatCopyVariant === 'number' ? (r.goatCopyVariant % pool.length) : Math.floor(Math.random() * pool.length);
-  var tpl = pool[idx] || pool[0];
-  var vars = {
-    achievement: buildCareerAchievement(r),
-    tier: r.tier || '',
-    score: r.score || 0,
-    games: r.games || 0,
-    points: Math.round(r.points || 0),
-    championships: r.championships || 0,
-    mvp: r.mvp || 0,
-    fmvp: r.fmvp || 0,
-    dpoy: r.dpoy || 0,
-    allNBA: r.allNBA || 0,
-    allStar: r.allStar || 0,
-    teamCount: r.teamCount || 0,
-    longestTeam: getTeamName(r.longestTeam || r.team || ''),
-    longestYears: r.longestYears || 0,
-    firstTeam: r.firstTeam || '',
-    lastTeam: r.lastTeam || '',
-    teamList: r.teamList || '',
-    seasonsCount: r.seasonsCount || 0,
-  };
-  return tpl.replace(/\{(\w+)\}/g, function(m, key) {
-    return key in vars ? String(vars[key]) : m;
-  });
-}
 
 // ── 历史百大：30 条入选 + 20 条未入选，围绕生涯经历客制化 ──
 var TOP100_COPY = [
@@ -20033,10 +19562,6 @@ function isHiddenRetiredPlayer(r) {
   return !!(r && (r.nameEN === 'Kyle Lowry' || r.name === '凯尔-洛瑞'));
 }
 
-function isHiddenRetiredPlayerName(n) {
-  return n === 'Kyle Lowry' || n === '凯尔-洛瑞';
-}
-
 function showOffSeasonModals() {
   showRosterReview();
 }
@@ -20073,73 +19598,6 @@ function showRetirementModal(callback) {
   };
 }
 
-function showFAModal(callback) {
-  var changes = STATE._leagueChanges || {};
-  var allSignings = changes.freeSignings || [];
-  var signings = allSignings.filter(function(s) { return s.ovr >= 86; });
-  var html = '<div class="team-picker-overlay" id="fa-modal">';
-  html += '<div class="team-picker-modal">';
-  html += '<div class="team-picker-header"><span>📋 自由球员市场</span></div>';
-  html += '<div style="padding:8px 12px;max-height:60vh;overflow-y:auto;">';
-  if (signings.length > 0) {
-    html += '<div style="font-family:var(--font-display);font-size:13px;color:var(--orange);margin-bottom:4px;">➡️ 自由球员转会</div>';
-    signings.forEach(function(s) {
-      var fromTn = getTeamName ? getTeamName(s.from) : s.from;
-      var toTn = getTeamName ? getTeamName(s.to) : s.to;
-      var hs = getPlayerHeadshotStyle(s.nameEN || s.playerName || s.name, 30);
-      var avatarHtml = hs
-        ? '<div class="bp-headshot" style="' + hs + ';width:30px;height:30px;border-radius:50%;border:2px solid var(--border);flex-shrink:0;"></div>'
-        : '<span style="color:var(--orange);font-size:14px;">➡️</span>';
-      html += '<div style="display:flex;align-items:center;gap:6px;padding:5px 2px;border-bottom:1px solid var(--border-light);font-size:13px;">';
-      html += avatarHtml;
-      html += '<span style="flex:1;"><strong>' + s.name + '</strong> ' + fromTn + ' → ' + toTn + '</span>';
-      html += '<span style="color:var(--text-dim);font-size:11px;">OVR ' + s.ovr + '</span>';
-      html += '</div>';
-    });
-  } else {
-    html += '<div style="text-align:center;padding:20px;font-size:13px;color:var(--text-muted);">无自由球员变动</div>';
-  }
-  html += '</div>';
-  html += '<div style="padding:10px 12px 14px;text-align:center;border-top:1px solid var(--border-light);">';
-  html += '<button class="btn btn-primary btn-sm" style="max-width:180px;">下一步</button>';
-  html += '</div></div></div>';
-  var el = document.createElement('div');
-  el.innerHTML = html;
-  document.body.appendChild(el.firstElementChild);
-  document.getElementById('fa-modal').querySelector('.btn-primary').onclick = function() {
-    document.getElementById('fa-modal').remove();
-    if (callback) callback();
-  };
-}
-
-function showTradesModal(callback) {
-  var changes = STATE._leagueChanges || { trades: [] };
-  var trades = changes.trades;
-  var html = '<div class="team-picker-overlay" id="trades-modal">';
-  html += '<div class="team-picker-modal">';
-  html += '<div class="team-picker-header"><span>🔄 联盟交易</span></div>';
-  html += '<div style="padding:8px 12px;max-height:60vh;overflow-y:auto;">';
-  trades.forEach(function(tr) {
-    var ta = getTeamName ? getTeamName(tr.from) : tr.from;
-    var tb = getTeamName ? getTeamName(tr.to) : tr.to;
-    html += '<div style="background:var(--bg-card);border:1.5px solid var(--border);border-radius:8px;padding:8px 10px;margin-bottom:6px;">';
-    html += '<div style="font-family:var(--font-display);font-size:12px;color:var(--text);font-weight:600;margin-bottom:4px;">🔁 ' + ta + ' ⇄ ' + tb + '</div>';
-    html += '<div style="font-size:12px;color:var(--text-dim);padding:2px 0;">👤 ' + tr.playerB + ' → ' + tb + '</div>';
-    html += '<div style="font-size:12px;color:var(--text-dim);padding:2px 0;">👤 ' + tr.playerA + ' → ' + ta + '</div>';
-    html += '</div>';
-  });
-  html += '</div>';
-  html += '<div style="padding:10px 12px 14px;text-align:center;border-top:1px solid var(--border-light);">';
-  html += '<button class="btn btn-primary btn-sm" style="max-width:180px;">查看阵容</button>';
-  html += '</div></div></div>';
-  var el = document.createElement('div');
-  el.innerHTML = html;
-  document.body.appendChild(el.firstElementChild);
-  document.getElementById('trades-modal').querySelector('.btn-primary').onclick = function() {
-    document.getElementById('trades-modal').remove();
-    if (callback) callback();
-  };
-}
 function showRosterReview() {
   showScreen('screen-roster-review');
   clearLineupCache();
@@ -21367,16 +20825,6 @@ document.addEventListener('DOMContentLoaded', () => {
 <script>
 var EVENT_REGISTRY = [];
 
-function applyHooks(hookName, arg) {
-  for (var i = 0; i < EVENT_REGISTRY.length; i++) {
-    var e = EVENT_REGISTRY[i];
-    if (e.hooks && e.hooks[hookName]) {
-      arg = e.hooks[hookName](arg);
-    }
-  }
-  return arg;
-}
-
 function showEventModal(data, callback) {
   var overlay = document.createElement('div');
   overlay.className = 'awards-overlay';
@@ -21486,14 +20934,6 @@ function isKeyInjuredRegularGame(game, gameIndex, totalGames) {
   if (seed >= 7 && seed <= 11) return true;
   if (leftIncludingToday <= 5 && seed >= 5 && seed <= 12) return true;
   return false;
-}
-
-function isKeyInjuredPlayoffGame(round, gameNum, winsA, winsB) {
-  var nextGame = gameNum + 1;
-  if (round === 3) return true;
-  if (nextGame >= 7) return true;
-  if (winsA === 3 || winsB === 3) return true;
-  return nextGame >= 5;
 }
 
 function shouldOfferPlayThroughInjury(key, isRegular) {
@@ -21635,10 +21075,6 @@ function getSeasonEndingInjuryGamesLeft() {
   return Math.max(1, remaining);
 }
 
-function isSuspensionEventDef(e) {
-  return !!(e && e.id && e.id.indexOf('susp_') === 0);
-}
-
 function pickWeightedEvent(candidates) {
   if (!candidates || candidates.length === 0) return null;
   var totalWeight = 0;
@@ -21725,7 +21161,6 @@ function checkRandomEvents(game, result, stats) {
   return null;
 }
 
-
 // ━━━ 类别 1：🥊 斗殴冲突 ━━━
 
 // ── 1. 恶意犯规爆发冲突 ──
@@ -21739,12 +21174,6 @@ EVENT_REGISTRY.push({
   },
 });
 
-
-
-
-
-
-
 // ── 5. 板凳清空 ──
 EVENT_REGISTRY.push({
   id: 'fight_bench_clearing',
@@ -21756,12 +21185,6 @@ EVENT_REGISTRY.push({
   },
 });
 
-
-
-
-
-
-
 // ── 9. 累积技犯被驱逐 ──
 EVENT_REGISTRY.push({
   id: 'fight_tech_escalation',
@@ -21772,10 +21195,6 @@ EVENT_REGISTRY.push({
     return { emoji:'🔥', title:'累积技犯被驱逐', body:'你第一节吃到了一个技术犯规，心里一直憋着一股火。第三节你被吹了一个进攻犯规后终于爆发了——你把球狠狠砸在地板上，球弹起来飞上了观众席。裁判立刻吹了你第二个技术犯规，举起右手做出驱逐手势。你愣住了，然后开始朝裁判走去，队友赶紧抱住你。"别！别！他把你驱逐了！你再过去又要追加禁赛！"你被队友们架着走向更衣室，全场响起了震天的嘘声。赛后联盟果然追加处罚，你被禁赛多场。', desc:'技犯被驱逐', _consequence:'suspension', _games:(1 + Math.floor(Math.random() * 2)) };
   },
 });
-
-
-
-
 
 // ── 12. 和裁判争论被驱逐 ──
 EVENT_REGISTRY.push({
@@ -21799,13 +21218,7 @@ EVENT_REGISTRY.push({
   },
 });
 
-
-
-
-
 // ━━━ 类别 2：💬 垃圾话/心理战 ━━━
-
-
 
 // ── 17. 罚球线念咒语 ──
 EVENT_REGISTRY.push({
@@ -21828,10 +21241,6 @@ EVENT_REGISTRY.push({
     return { emoji:'💃', title:'替补席跳舞嘲讽', body:'你命中了一记反超三分后，在回防的路上突然即兴跳了一段舞——你甚至不知道自己跳的是什么，大概是TikTok上最近流行的那个扭胯动作。对面的替补席有人站起来为你打分："6/10，创意不错，执行一般。"你愣了一下，然后对他抱拳致谢。赛后这段视频在推特上被转了十万次，标题："这可能NBA史上最尴尬的庆祝。"', desc:'跳舞嘲讽' };
   },
 });
-
-
-
-
 
 // ── 21. "你打得像我的早餐" ──
 EVENT_REGISTRY.push({
@@ -21877,8 +21286,6 @@ EVENT_REGISTRY.push({
   },
 });
 
-
-
 // ── 26. 偷听战术 ──
 EVENT_REGISTRY.push({
   id: 'trash_timeout',
@@ -21889,10 +21296,6 @@ EVENT_REGISTRY.push({
     return { emoji:'⏸️', title:'偷听战术', body:'对方叫了一个暂停，你假装漫不经心地往他们的替补席方向走了几步——你听到对方主教练正在布置针对你的防守战术。你还没听到关键部分就被安保人员发现了。"你在干什么？""呃...我在喝水。"你被礼貌但坚定地请回了自己的半场。下半场你发现他们的防守确实变了——你把偷听到的那半截战术结合自己的判断，找到了破解方法。赛后教练问你："你怎么知道他们会包夹你？"你神秘地笑了一下。', desc:'偷听战术' };
   },
 });
-
-
-
-
 
 // ── 29. 和裁判拉家常 ──
 EVENT_REGISTRY.push({
@@ -21905,11 +21308,7 @@ EVENT_REGISTRY.push({
   },
 });
 
-
-
 // ━━━ 类别 3：🤣 搞笑/囧事 ━━━
-
-
 
 // ── 32. 鞋掉了继续打 ──
 EVENT_REGISTRY.push({
@@ -21966,8 +21365,6 @@ EVENT_REGISTRY.push({
   },
 });
 
-
-
 // ── 39. 吃坏肚子 ──
 EVENT_REGISTRY.push({
   id: 'food_poisoning',
@@ -22001,7 +21398,6 @@ EVENT_REGISTRY.push({
   },
 });
 
-
 // ── 43. 传球砸到摄影师 ──
 EVENT_REGISTRY.push({
   id: 'hit_photographer',
@@ -22023,9 +21419,6 @@ EVENT_REGISTRY.push({
     return { emoji:'🧹', title:'踩到毛巾滑倒', body:'你在底线跑位时一脚踩到了保洁人员刚刚拖地留下的湿毛巾——你双脚向前劈叉滑出两米远，以一个标准的"一字马"姿势停在界外。观众们笑得前仰后合，你感觉自己的腹股沟在发出抗议。你扶着腰站起来，听到解说员说："他可能需要去练练瑜伽了。"', desc:'踩毛巾滑倒' };
   },
 });
-
-
-
 
 // ── 47. 庆祝过度撞倒教练 ──
 EVENT_REGISTRY.push({
@@ -22117,7 +21510,6 @@ EVENT_REGISTRY.push({
   },
 });
 
-
 // ── 56. 点赞球迷照片 ──
 EVENT_REGISTRY.push({
   id: 'like_fan_photo',
@@ -22150,7 +21542,6 @@ EVENT_REGISTRY.push({
     return { emoji:'😂', title:'被做成表情包', body:'你那尴尬瞬间的高清截图已经在互联网上病毒式传播了。朋友们把各种版本的表情包发到你的手机上——《还珠格格》版的、漫威版的、甚至还有猫猫版的。你决定坦然接受，把最好笑的一张设成了自己的推特头像。球迷们感动落泪："他懂梗！"', desc:'表情包' };
   },
 });
-
 
 // ── 60. TikTok跳舞爆火 ──
 EVENT_REGISTRY.push({
@@ -22187,8 +21578,6 @@ EVENT_REGISTRY.push({
 
 // ━━━ 类别 5：🏠 更衣室 ━━━
 
-
-
 // ── 64. 飞机扑克输钱 ──
 EVENT_REGISTRY.push({
   id: 'poker_on_plane',
@@ -22199,9 +21588,6 @@ EVENT_REGISTRY.push({
     return { emoji:'🃏', title:'飞机扑克输钱', body:'球队包机上，你和三个队友围在一起打德州扑克。今晚你的运气差到了极点——两对碰上葫芦，葫芦碰上四条，四条碰上同花顺。当你在最后一局连底裤都快输掉的时候，你意识到他们三个在串通出千。但你已经输了半个月的工资了。', desc:'扑克输钱' };
   },
 });
-
-
-
 
 // ── 67. 偷穿教练西装 ──
 EVENT_REGISTRY.push({
@@ -22235,9 +21621,6 @@ EVENT_REGISTRY.push({
     return { emoji:'🍳', title:'老将请你回家吃饭', body:'球队的老将今天邀请你去他家吃晚饭。他的妻子做了一桌丰盛的家常菜，你们边吃边聊他年轻时的故事。"你知道吗，我当年也像你一样，觉得自己无所不能。"他喝了一口红酒，眼神有些迷离，"好好享受你的新秀赛季吧，它比你想象的要短得多。"', desc:'老将请客' };
   },
 });
-
-
-
 
 // ── 72. 更衣室放歌被投诉 ──
 EVENT_REGISTRY.push({
@@ -22283,24 +21666,7 @@ EVENT_REGISTRY.push({
   },
 });
 
-
 // ━━━ 类别 6：🎯 名场面 ━━━
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 // ── 92. 不看人背传绝杀助攻 ──
 EVENT_REGISTRY.push({
@@ -22359,7 +21725,6 @@ EVENT_REGISTRY.push({
 
 // ━━━ 类别 7：🍀 场外生活 ━━━
 
-
 // ── 98. 参加社区慈善活动 ──
 EVENT_REGISTRY.push({
   id: 'charity',
@@ -22370,7 +21735,6 @@ EVENT_REGISTRY.push({
     return { emoji:'❤️', title:'参加社区慈善活动', body:'球队组织了一次社区服务活动，你去了一所小学和孩子们一起打篮球、发午餐。一个黑人小女孩拉住你的手说："我以后也要打篮球，像你一样。"你蹲下来告诉她："你会比我更好的。"活动结束时校长送了你一筐孩子们手绘的感谢卡。你把它们全部带回了家，贴在书房的墙上。', desc:'慈善活动' };
   },
 });
-
 
 // ── 100. 投资加密货币亏钱 ──
 EVENT_REGISTRY.push({
@@ -22394,7 +21758,6 @@ EVENT_REGISTRY.push({
   },
 });
 
-
 // ── 103. 赞助商送豪车 ──
 EVENT_REGISTRY.push({
   id: 'sponsor_car',
@@ -22416,7 +21779,6 @@ EVENT_REGISTRY.push({
     return { emoji:'🎫', title:'老家亲戚来要票', body:'你的电话响了——是你十几年没联系过的表舅。寒暄了几句之后他终于说出了目的："那个...下周六的比赛能搞到几张票吗？你表弟想去看。"你无奈地订了四张票放在前台。赛后你的亲戚们围着你拍了一百张合影，你表舅的儿子说："你是我们家最出名的人了！"', desc:'亲戚要票' };
   },
 });
-
 
 // ── 106. 养了一只宠物 ──
 EVENT_REGISTRY.push({
@@ -22453,7 +21815,6 @@ EVENT_REGISTRY.push({
 
 // ━━━ 类别 8：👻 玄学/奇闻 ━━━
 
-
 // ── 110. 幸运袜子不能洗 ──
 EVENT_REGISTRY.push({
   id: 'lucky_socks',
@@ -22464,10 +21825,6 @@ EVENT_REGISTRY.push({
     return { emoji:'🧦', title:'幸运袜子不能洗', body:'那场你拿到赛季新高的时候穿的是什么袜子你还记得。那之后的每一场比赛你都要找出同一双袜子——即使它已经穿了整整两周没洗了。它的气味已经成了一个独立的存在。你的队友拒绝和你坐同一排座椅。但你不在乎——只要它能带来好运，它臭它的，你赢你的。', desc:'幸运袜' };
   },
 });
-
-
-
-
 
 // ── 114. 球队包机延误 ──
 EVENT_REGISTRY.push({
@@ -22480,8 +21837,6 @@ EVENT_REGISTRY.push({
   },
 });
 
-
-
 // ── 116. 幸运手链丢了 ──
 EVENT_REGISTRY.push({
   id: 'lucky_bracelet',
@@ -22492,7 +21847,6 @@ EVENT_REGISTRY.push({
     return { emoji:'📿', title:'幸运手链丢了', body:'你突然发现一直戴着的那条外婆送的幸运手链不见了！你在更衣室里翻了个底朝天——训练包、衣柜、昨天穿的衣服——都没有。你打电话问保洁，翻遍了昨天的球场区域。最终你发现它卡在了你的车座缝隙里。你如释重负地把它重新戴在手上，拍拍它："别再乱跑了。"', desc:'手链丢了' };
   },
 });
-
 
 // ── 118. 球场停电 ──
 EVENT_REGISTRY.push({
@@ -22506,9 +21860,6 @@ EVENT_REGISTRY.push({
 });
 
 // ━━━ 类别 9：🦠 伤病 ━━━
-
-
-
 
 // ── 122. 背部痉挛 ──
 EVENT_REGISTRY.push({
@@ -22899,21 +22250,6 @@ function drawPosterTeamLogo(ctx, team, x, y, size, colors) {
   ctx.fillText(team || '', x + size / 2, y + size / 2 + 0.5);
   ctx.restore();
 }
-function getOssClient() {
-  if (_ossClient) return _ossClient;
-  var K = window.KaleidoOSS || (typeof require === 'function' ? require('@hupu/kaleido-fed-sdk') : null);
-  if (K) {
-    _ossClient = new K({
-      appId: 'b1AcxWKA1u0hyDYv5kXgImZBRSQ=',
-      module: 'activity-screenshot-fed',
-      path: '/screenshot/activity/fed',
-      sk: 'HioGpkmGe9bsW0iqRLJEyGoLr4Q=',
-      action: '1',
-    });
-    if (typeof _ossClient.start === 'function') _ossClient.start();
-  }
-  return _ossClient;
-}
 
 function roundRectC(ctx, x, y, w, h, r) {
   ctx.beginPath();
@@ -22929,334 +22265,12 @@ function roundRectC(ctx, x, y, w, h, r) {
   ctx.closePath();
 }
 
-function generateBuildPlayerPoster() {
-  trackEvent({act:"click",blk:"BMC098",pos:"TC9",label:"生成生涯海报"});
-  updatePosterModeButtons();
-  var s = STATE;
-  if (!s.finalOVR) { alert('请先完成赛季！'); return; }
-
-  var ps = s.season.playerStats;
-  var gp = Math.max(ps.games, 1);
-  var avg = {
-    pts: Math.round(ps.pts / gp * 10) / 10,
-    reb: Math.round(ps.reb / gp * 10) / 10,
-    ast: Math.round(ps.ast / gp * 10) / 10,
-    stl: Math.round(ps.stl / gp),
-    blk: Math.round(ps.blk / gp),
-    tov: Math.round(ps.tov / gp * 10) / 10,
-    fgm: Math.round(ps.fgm / gp * 10) / 10,
-    fga: Math.round(ps.fga / gp * 10) / 10,
-    ftm: Math.round(ps.ftm / gp * 10) / 10,
-    fta: Math.round(ps.fta / gp * 10) / 10,
-    threeM: Math.round(ps.threeM / gp * 10) / 10,
-    threeA: Math.round(ps.threeA / gp * 10) / 10,
-  };
-  var pct = avg.fga > 0 ? (avg.fgm / avg.fga * 100).toFixed(1) : '—';
-  var threePct = avg.threeA > 0 ? (avg.threeM / avg.threeA * 100).toFixed(1) : '—';
-  var ftPct = avg.fta > 0 ? (avg.ftm / avg.fta * 100).toFixed(1) : '—';
-  var ovrGrade = getOvrGrade ? getOvrGrade(s.finalOVR) : '';
-  var teamName = getTeamName ? getTeamName(s.careerTeam) : s.careerTeam;
-  var posName = (SIM_CONFIG && SIM_CONFIG.POSITIONS) ? SIM_CONFIG.POSITIONS[s.position] : s.position;
-
-  // 季后赛结果
-  var bracket = s.season.playoffBracket;
-  var seed = getConferenceSeed ? getConferenceSeed(s.careerTeam) : 99;
-  var seasonDone = !s.season.schedule || !s.season.schedule.find(function(g){return !g.simulated;});
-  var playoffResult = '';
-  if (!seasonDone) {
-    playoffResult = '';
-  } else if (s.season.isChampion) {
-    playoffResult = '🏆 总冠军';
-  } else if (bracket && bracket.results) {
-    var myResults = bracket.results.filter(function(r){ return r.isMySeries; });
-    var lastMy = myResults.length > 0 ? myResults[myResults.length - 1] : null;
-    if (lastMy) {
-      var userWon = lastMy.teamA === s.careerTeam ? lastMy.aWon : !lastMy.aWon;
-      var rnList = ['首轮', '次轮', '分区决赛', '总决赛'];
-      var rn = rnList[lastMy.round] || ('第' + (lastMy.round + 1) + '轮');
-      if (lastMy.round === 3 && userWon) playoffResult = '🏆 总冠军';
-      else if (lastMy.round === 3) playoffResult = '总决赛失利';
-      else playoffResult = rn + '淘汰';
-    }
-  } else if (seed > 10) {
-    playoffResult = '未进季后赛';
-  } else {
-    var pi = s.season.playInState;
-    if (pi && pi.isEliminated) playoffResult = '附加赛淘汰';
-  }
-
-  var po = s.season.playoffStats;
-  var hasPo = po && po.games > 0;
-  var poAvg = null;
-  if (hasPo) {
-    var poG = po.games;
-    poAvg = {
-      pts: Math.round(po.pts / poG * 10) / 10,
-      reb: Math.round(po.reb / poG * 10) / 10,
-      ast: Math.round(po.ast / poG * 10) / 10,
-      stl: Math.round(po.stl / poG),
-      blk: Math.round(po.blk / poG),
-      tov: Math.round(po.tov / poG * 10) / 10,
-    };
-  }
-
-  // ── 模板信息 ──
-  var archMatch = (typeof matchPlayerArchetype === 'function') ? matchPlayerArchetype(s.attrs, 1) : [];
-  var archInfo = archMatch.length > 0 ? archMatch[0] : null;
-  var tiered = (typeof findTieredPlayers === 'function') ? findTieredPlayers(s.attrs, s.position) : [];
-
-  // ── 颜色常量 ──
-  var C = {
-    bg: '#faf5eb', bgCard: '#fffaf2', border: '#f0e0cc',
-    text: '#2d1f0e', textDim: '#8a7a66', textMuted: '#baa992',
-    orange: '#ff6b35', gold: '#f7a600', green: '#2ec4b6', red: '#e63946',
-    fd: '"Fredoka","Noto Sans SC",sans-serif',
-    fb: '"Nunito","Noto Sans SC",sans-serif',
-  };
-
-  var W = 480, cardW = W - 28, cardX = 14, cx = W / 2;
-
-  // ═══ 动态高度（按内容自动撑长）════
-  var sections = [
-    80,   // sr-header + 分隔线
-    96,   // 球员信息
-    66,   // 模板
-    140,  // 常规赛
-  ];
-  if (hasPo) sections.push(130);  // 季后赛
-  sections.push(126); // 最终属性
-  sections.push(18);  // 底部边距
-  var H = sections.reduce(function(a,b){return a+b+6;}, 0) + 8;
-
-  var canvas = document.getElementById('posterCanvas');
-  canvas.width = W * POSTER_SCALE;
-  canvas.height = H * POSTER_SCALE;
-  var ctx = canvas.getContext('2d');
-  ctx.scale(POSTER_SCALE, POSTER_SCALE);
-
-  ctx.fillStyle = C.bg;
-  ctx.fillRect(0, 0, W, H);
-
-  function card(x, y, w, h) {
-    ctx.fillStyle = '#fffaf2';
-    roundRectC(ctx, x, y, w, h, 12); ctx.fill();
-    ctx.strokeStyle = '#f0e0cc';
-    ctx.lineWidth = 1.2;
-    roundRectC(ctx, x, y, w, h, 12); ctx.stroke();
-  }
-
-  function fillCell(x, y, w, h, r) {
-    ctx.fillStyle = 'rgba(255,107,53,0.06)';
-    roundRectC(ctx, x, y, w, h, r); ctx.fill();
-  }
-
-  var y = 0;
-
-  // ═══ 1. sr-header ═══
-  y = 16;
-  // 右上角虎扑Logo
-  if (_hupuLogo) {
-    ctx.save();
-    var logoSize = 28;
-    ctx.drawImage(_hupuLogo, W - 14 - logoSize, y - 4, logoSize, logoSize);
-    ctx.restore();
-  }
-  ctx.textAlign = 'center'; ctx.textBaseline = 'top';
-  ctx.fillStyle = C.text;
-  ctx.font = '800 22px ' + C.fd;
-  ctx.fillText(teamName, cx, y);
-  y += 30;
-  ctx.fillStyle = C.orange;
-  ctx.font = '800 32px ' + C.fd;
-  ctx.fillText(s.season.wins + '-' + s.season.losses, cx, y);
-  y += 36;
-  var isChamp = playoffResult.indexOf('总冠军') >= 0;
-  ctx.fillStyle = isChamp ? C.gold : C.textDim;
-  ctx.font = '500 12px ' + C.fd;
-  ctx.fillText(playoffResult || '赛季结束', cx, y);
-  y += 16;
-
-  // 分隔线
-  ctx.strokeStyle = C.border;
-  ctx.lineWidth = 1.5;
-  ctx.beginPath(); ctx.moveTo(cardX, y); ctx.lineTo(cardX + cardW, y); ctx.stroke();
-  y += 12;
-
-  // ═══ 2. 球员信息（sr-section风格）═══
-  var infoH = 88;
-  card(cardX, y, cardW, infoH);
-  var ix = cardX + 14, iw = cardW - 28;
-  ctx.textAlign = 'left'; ctx.textBaseline = 'top';
-  ctx.fillStyle = C.orange;
-  ctx.font = '500 12px ' + C.fd;
-  ctx.fillText('👤 我的球员信息', ix, y + 8);
-
-  function infoRow(label, val, yy) {
-    ctx.fillStyle = C.textDim;
-    ctx.font = '400 11px ' + C.fb;
-    ctx.textAlign = 'left';
-    ctx.fillText(label, ix, yy);
-    ctx.fillStyle = C.text;
-    ctx.font = '500 12px ' + C.fd;
-    ctx.textAlign = 'right';
-    ctx.fillText(val, ix + iw, yy);
-  }
-  infoRow('位置', posName, y + 30);
-  infoRow('总评', s.finalOVR.toString(), y + 50);
-  infoRow('球队', teamName, y + 70);
-  y += infoH + 6;
-
-  // ═══ 3. 模板信息 ═══
-  cardH = 66;
-  card(cardX, y, cardW, cardH);
-
-  ctx.textAlign = 'left'; ctx.textBaseline = 'top';
-  ctx.fillStyle = C.orange;
-  ctx.font = '500 12px ' + C.fd;
-  ctx.fillText('🔍 球员模板', cardX + 14, y + 6);
-
-  var archY = y + 24;
-  ctx.fillStyle = C.text;
-  ctx.font = '400 12px ' + C.fd;
-  if (archInfo) {
-    ctx.fillText('风格：' + archInfo.cn, cardX + 14, archY);
-  } else {
-    ctx.fillText('风格：无', cardX + 14, archY);
-  }
-
-  // 球员模板名称
-  ctx.fillStyle = C.text;
-  ctx.font = '400 12px ' + C.fd;
-  if (tiered.length > 0) {
-    var nameStr = '球员模板：';
-    for (var ti = 0; ti < Math.min(tiered.length, 3); ti++) {
-      var item = tiered[ti];
-      var p = item.player;
-      nameStr += (ti > 0 ? '、' : '') + (p.cname || p.name);
-    }
-    ctx.fillText(nameStr, cardX + 14, archY + 20);
-  } else {
-    ctx.fillText('球员模板：无', cardX + 14, archY + 20);
-  }
-
-  y += cardH + 6;
-
-  // ═══ 4. 常规赛 ═══
-  cardH = 140;
-  card(cardX, y, cardW, cardH);
-
-  ctx.textAlign = 'left'; ctx.textBaseline = 'top';
-  ctx.fillStyle = C.orange;
-  ctx.font = '500 13px ' + C.fd;
-  ctx.fillText('📊 常规赛 ' + gp + '场', cardX + 14, y + 8);
-
-  var statLabels = ['得分', '篮板', '助攻', '抢断', '盖帽', '失误'];
-  var statVals = [avg.pts, avg.reb, avg.ast, avg.stl, avg.blk, avg.tov];
-  var sCols = 3, sGap = 5;
-  var sW = (cardW - 32 - (sCols - 1) * sGap) / sCols, sH = 34;
-  for (var si = 0; si < 6; si++) {
-    var scol = si % sCols, srow = Math.floor(si / sCols);
-    var sx = cardX + 14 + scol * (sW + sGap);
-    var sy = y + 30 + srow * (sH + sGap);
-    fillCell(sx, sy, sW, sH, 6);
-    ctx.textAlign = 'center'; ctx.textBaseline = 'top';
-    ctx.fillStyle = C.text;
-    ctx.font = '500 16px ' + C.fd;
-    ctx.fillText(statVals[si].toString(), sx + sW / 2, sy + 2);
-    ctx.fillStyle = C.textDim;
-    ctx.font = '400 9px ' + C.fb;
-    ctx.fillText(statLabels[si], sx + sW / 2, sy + 22);
-  }
-
-  ctx.textAlign = 'center'; ctx.textBaseline = 'top';
-  ctx.fillStyle = C.textDim;
-  ctx.font = '400 10px ' + C.fb;
-  var pctY2 = y + 30 + 2 * (sH + sGap) + 3;
-  ctx.fillText(avg.fgm + '-' + avg.fga + ' (' + pct + '%) · 三分 ' + avg.threeM + '-' + avg.threeA + ' (' + threePct + '%)', cx, pctY2);
-  y += cardH + 6;
-
-  // ═══ 5. 季后赛 ═══
-  if (hasPo) {
-    cardH = 130;
-    card(cardX, y, cardW, cardH);
-
-    ctx.textAlign = 'left'; ctx.textBaseline = 'top';
-    ctx.fillStyle = C.orange;
-    ctx.font = '500 13px ' + C.fd;
-    ctx.fillText('🏀 季后赛 ' + po.games + '场', cardX + 14, y + 8);
-
-    var poVals = [poAvg.pts, poAvg.reb, poAvg.ast, poAvg.stl, poAvg.blk, poAvg.tov];
-    for (var pi2 = 0; pi2 < 6; pi2++) {
-      var pcol = pi2 % sCols, prow = Math.floor(pi2 / sCols);
-      var psx = cardX + 14 + pcol * (sW + sGap);
-      var psy = y + 30 + prow * (sH + sGap);
-      fillCell(psx, psy, sW, sH, 6);
-      ctx.textAlign = 'center'; ctx.textBaseline = 'top';
-      ctx.fillStyle = C.text;
-      ctx.font = '500 16px ' + C.fd;
-      ctx.fillText(poVals[pi2].toString(), psx + sW / 2, psy + 2);
-      ctx.fillStyle = C.textDim;
-      ctx.font = '400 9px ' + C.fb;
-      ctx.fillText(statLabels[pi2], psx + sW / 2, psy + 22);
-    }
-    y += cardH + 6;
-  }
-
-  // ═══ 6. 最终属性（3排：5-4-4）═══
-  cardH = 126;
-  card(cardX, y, cardW, cardH);
-
-  ctx.textAlign = 'left'; ctx.textBaseline = 'top';
-  ctx.fillStyle = C.orange;
-  ctx.font = '500 13px ' + C.fd;
-  ctx.fillText('🏷️ 最终属性', cardX + 14, y + 8);
-
-  var attrKeys = (SIM_CONFIG && SIM_CONFIG.ATTR_LIST) ? SIM_CONFIG.ATTR_LIST : [];
-  var attrCN = (typeof window.attrCN === 'function') ? window.attrCN : function(k) { return k; };
-  var aCols = 5, aGap = 3;
-  var aW = (cardW - 32 - (aCols - 1) * aGap) / aCols, aH = 28;
-
-  for (var ai = 0; ai < attrKeys.length; ai++) {
-    var k = attrKeys[ai];
-    var val = (s.attrs[k] !== null && s.attrs[k] !== undefined) ? s.attrs[k] : 50;
-    var grade = getGrade ? getGrade(val) : { letter: 'C', color: C.textDim };
-    var acol = ai % aCols, arow = Math.floor(ai / aCols);
-    var ax = cardX + 14 + acol * (aW + aGap);
-    var ay = y + 28 + arow * (aH + aGap);
-    fillCell(ax, ay, aW, aH, 5);
-    ctx.textAlign = 'center'; ctx.textBaseline = 'top';
-    ctx.fillStyle = C.textDim;
-    ctx.font = '400 8px ' + C.fb;
-    ctx.fillText(attrCN(k), ax + aW / 2, ay + 2);
-    ctx.fillStyle = grade.color;
-    ctx.font = '500 13px ' + C.fd;
-    ctx.fillText(grade.letter, ax + aW / 2, ay + 14);
-  }
-
-  y += cardH + 6;
-
-  // ═══ 7. 水印 ═══
-  ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
-  ctx.fillStyle = C.textMuted;
-  ctx.font = '400 9px ' + C.fb;
-  ctx.fillText('我的完美建模球员  JRs出品', cx, H - 6);
-
-  canvas._corsSafe = true;
-  var dataURL = canvas.toDataURL('image/png');
-  setPosterPages([dataURL], 0);
-}
-
 var _posterMode = 'career';
 var _posterPages = [];
 var _posterPageIndex = 0;
 
 function updatePosterModeButtons() {
   _posterMode = 'career';
-}
-
-function switchPosterMode(mode) {
-  _posterMode = 'career';
-  generateCareerPoster();
 }
 
 function setPosterPages(pages, index) {
@@ -24140,11 +23154,6 @@ function biographySeed(str) {
     h = Math.imul(h, 16777619);
   }
   return h >>> 0;
-}
-
-function biographyPick(list, seed, salt) {
-  if (!list || !list.length) return '';
-  return list[(seed + salt * 2654435761) % list.length];
 }
 
 var CAREER_BIOGRAPHY_RULED_COPY = {
@@ -25193,16 +24202,6 @@ function expandCareerBiographyCopyBank() {
 }
 
 expandCareerBiographyCopyBank();
-
-function countCareerBiographyCopyBank() {
-  var total = 0;
-  var bySection = {};
-  Object.keys(CAREER_BIOGRAPHY_RULED_COPY).forEach(function(section) {
-    bySection[section] = (CAREER_BIOGRAPHY_RULED_COPY[section] || []).length;
-    total += bySection[section];
-  });
-  return { total: total, sections: bySection };
-}
 
 function biographyHasTag(tags, tag) {
   return (tags || []).indexOf(tag) >= 0;
@@ -26545,11 +25544,6 @@ function generateRetirementStoryPosterDataURL(r) {
   return canvas.toDataURL('image/png');
 }
 
-function generateRetirementStoryPoster() {
-  var dataURL = generateRetirementStoryPosterDataURL();
-  if (dataURL) setPosterPages([dataURL], 0);
-}
-
 // ── 关闭海报 ──
 function closePoster() {
   document.getElementById('posterOverlay').style.display = 'none';
@@ -26973,7 +25967,6 @@ if (window._sdkReady && document.getElementById('career-area')) {
   }
 })();
 </script>
-
 
 <script id='player-age-data' type='application/json'>[{"n":"Mouhamadou Gueye","a":27},{"n":"Keaton Wallace","a":26},{"n":"Brandon Miller","a":23},{"n":"Amen Thompson","a":22},{"n":"Cam Whitmore","a":21},{"n":"Anthony Black","a":21},{"n":"Gradey Dick","a":21},{"n":"Bilal Coulibaly","a":21},{"n":"Cason Wallace","a":21},{"n":"Keyonte George","a":21},{"n":"Brandin Podziemski","a":22},{"n":"Brice Sensabaugh","a":22},{"n":"Noah Clowney","a":21},{"n":"Julian Strawther","a":23},{"n":"Kobe Brown","a":26},{"n":"Mouhamed Gueye","a":22},{"n":"Jalen Wilson","a":25},{"n":"Julian Phillips","a":21},{"n":"Oscar Tshiebwe","a":25},{"n":"Jaylen Clark","a":24},{"n":"Rayan Rupert","a":21},{"n":"Scoot Henderson","a":21},{"n":"Jordan Miller","a":25},{"n":"Tyler Smith","a":20},{"n":"Bronny James","a":21},{"n":"Tristen Newton","a":24},{"n":"Zaccharie Risacher","a":20},{"n":"Dalton Knecht","a":24},{"n":"Tristan da Silva","a":24},{"n":"Isaiah Collier","a":21},{"n":"Yves Missi","a":21},{"n":"DaRon Holmes II","a":23},{"n":"Kyle Filipowski","a":21},{"n":"Pacome Dadiet","a":20},{"n":"Cooper Flagg","a":18},{"n":"Ryan Dunn","a":22},{"n":"Ajay Mitchell","a":23},{"n":"Jamal Shead","a":23},{"n":"Adem Bona","a":22},{"n":"Antonio Reeves","a":24},{"n":"Blake Hinson","a":24},{"n":"Dillon Jones","a":23},{"n":"Isaac Jones","a":25},{"n":"Oso Ighodaro","a":23},{"n":"Pelle Larsson","a":24},{"n":"Quinten Post","a":25},{"n":"Jahmir Young","a":25},{"n":"Cormac Ryan","a":26},{"n":"Tolu Smith","a":25},{"n":"RayJ Dennis","a":24},{"n":"Jamison Battle","a":24},{"n":"Elijah Harkless","a":25},{"n":"Ace Bailey","a":19},{"n":"Derik Queen","a":20},{"n":"Danny Wolf","a":21},{"n":"Hugo Gonzalez","a":19},{"n":"Nolan Traore","a":19},{"n":"Jase Richardson","a":20},{"n":"Nique Clifford","a":23},{"n":"Kon Knueppel","a":20},{"n":"Kasparas Jakucionis","a":19},{"n":"Collin Murray-Boyles","a":20},{"n":"Ben Saraf","a":19},{"n":"Tyrese Proctor","a":21},{"n":"Chaz Lanier","a":23},{"n":"Sion James","a":22},{"n":"Jahmai Mashack","a":22},{"n":"Max Shulga","a":23},{"n":"Kam Jones","a":23},{"n":"Taelon Peter","a":23},{"n":"Alijah Martin","a":23},{"n":"Kobe Sanders","a":23},{"n":"Javon Small","a":22},{"n":"Micah Peavy","a":24},{"n":"Jamir Watkins","a":24},{"n":"Tamar Bates","a":22},{"n":"Dylan Cardwell","a":23},{"n":"CJ Huntley","a":23},{"n":"Curtis Jones","a":24},{"n":"Myron Gardner","a":24},{"n":"Moussa Cisse","a":23},{"n":"Keshon Gilbert","a":22},{"n":"Julian Reese","a":22},{"n":"Adama Bal","a":22},{"n":"Al Horford","a":39},{"n":"Brook Lopez","a":37},{"n":"Nicolas Batum","a":36},{"n":"Taj Gibson","a":39},{"n":"Garrett Temple","a":39},{"n":"Paul George","a":35},{"n":"Bismack Biyombo","a":33},{"n":"Klay Thompson","a":35},{"n":"Tobias Harris","a":33},{"n":"Jimmy Butler","a":36},{"n":"Damian Lillard","a":35},{"n":"Andre Drummond","a":32},{"n":"Draymond Green","a":35},{"n":"Kelly Olynyk","a":34},{"n":"Kentavious Caldwell-Pope","a":32},{"n":"Giannis Antetokounmpo","a":30},{"n":"Mason Plumlee","a":35},{"n":"Steven Adams","a":32},{"n":"CJ McCollum","a":34},{"n":"Clint Capela","a":31},{"n":"Zach LaVine","a":30},{"n":"Julius Randle","a":30},{"n":"Jordan Clarkson","a":33},{"n":"Jusuf Nurkic","a":31},{"n":"Joel Embiid","a":31},{"n":"Myles Turner","a":29},{"n":"Karl-Anthony Towns","a":29},{"n":"Kristaps Porzingis","a":30},{"n":"Trey Lyles","a":28},{"n":"Norman Powell","a":32},{"n":"T.J. McConnell","a":33},{"n":"Buddy Hield","a":33},{"n":"Domantas Sabonis","a":29},{"n":"Caris LeVert","a":31},{"n":"Ivica Zubac","a":28},{"n":"Pascal Siakam","a":31},{"n":"Jayson Tatum","a":27},{"n":"Jonathan Isaac","a":28},{"n":"Jarrett Allen","a":27},{"n":"Zach Collins","a":27},{"n":"Kyle Kuzma","a":30},{"n":"Tony Bradley","a":27},{"n":"Dillon Brooks","a":29},{"n":"John Collins","a":28},{"n":"Bogdan Bogdanovic","a":33},{"n":"Luka Doncic","a":26},{"n":"Luke Kornet","a":30},{"n":"Deandre Ayton","a":27},{"n":"Goga Bitadze","a":26},{"n":"Bruce Brown","a":29},{"n":"Caleb Martin","a":30},{"n":"Trae Young","a":27},{"n":"Shai Gilgeous-Alexander","a":27},{"n":"Donte DiVincenzo","a":28},{"n":"Anfernee Simons","a":26},{"n":"Jevon Carter","a":30},{"n":"Jalen Brunson","a":28},{"n":"Moritz Wagner","a":28},{"n":"Josh Okogie","a":27},{"n":"Kevin Huerter","a":27},{"n":"Jock Landale","a":28},{"n":"Zion Williamson","a":25},{"n":"RJ Barrett","a":25},{"n":"Darius Garland","a":26},{"n":"Keldon Johnson","a":26},{"n":"Tyler Herro","a":25},{"n":"Cameron Johnson","a":29},{"n":"Matisse Thybulle","a":28},{"n":"Luguentz Dort","a":26},{"n":"Jordan Poole","a":26},{"n":"Terance Mann","a":29},{"n":"Thanasis Antetokounmpo","a":33},{"n":"John Konchar","a":29},{"n":"Javonte Green","a":32},{"n":"Patrick Williams","a":24},{"n":"Killian Hayes","a":24},{"n":"Obi Toppin","a":27},{"n":"Deni Avdija","a":24},{"n":"Precious Achiuwa","a":26},{"n":"Immanuel Quickley","a":26},{"n":"Paul Reed","a":26},{"n":"Aaron Nesmith","a":26},{"n":"Isaiah Stewart","a":24},{"n":"Sam Merrill","a":29},{"n":"Vit Krejci","a":25},{"n":"Desmond Bane","a":27},{"n":"Xavier Tillman","a":27},{"n":"Devin Vassell","a":25},{"n":"Jordan Goodwin","a":27},{"n":"Jay Huff","a":28},{"n":"Jalen Suggs","a":24},{"n":"Miles McBride","a":24},{"n":"Jericho Sims","a":26},{"n":"Quentin Grimes","a":25},{"n":"Charles Bassey","a":25},{"n":"Justin Champagnie","a":24},{"n":"Evan Mobley","a":24},{"n":"Isaiah Jackson","a":24},{"n":"Cade Cunningham","a":24},{"n":"Luka Garza","a":26},{"n":"Isaiah Livers","a":27},{"n":"Sandro Mamukelashvili","a":26},{"n":"Bones Hyland","a":25},{"n":"Jose Alvarado","a":27},{"n":"Jock Landale","a":30},{"n":"Moses Moody","a":23},{"n":"Dru Smith","a":27},{"n":"Mark Williams","a":23},{"n":"Tari Eason","a":24},{"n":"Nikola Jovic","a":22},{"n":"MarJon Beauchamp","a":23},{"n":"Jaden Hardy","a":23},{"n":"Christian Braun","a":24},{"n":"Jake LaRavia","a":23},{"n":"Dalen Terry","a":23},{"n":"Christian Koloko","a":25},{"n":"Keon Ellis","a":26},{"n":"Peyton Watson","a":23},{"n":"Dominick Barlow","a":22},{"n":"Ariel Hukporti","a":23},{"n":"Ryan Rollins","a":23},{"n":"Tyrese Martin","a":26},{"n":"Gui Santos","a":23},{"n":"Collin Gillespie","a":26},{"n":"Jamaree Bouyea","a":26},{"n":"Tyson Etienne","a":26},{"n":"Victor Wembanyama","a":21},{"n":"Jamal Cain","a":26},{"n":"Pat Spencer","a":29},{"n":"Daeqwon Plowden","a":27},{"n":"Quenton Jackson","a":27},{"n":"Jarace Walker","a":22},{"n":"Ausar Thompson","a":22},{"n":"Taylor Hendricks","a":21},{"n":"Jordan Hawkins","a":23},{"n":"Kris Murray","a":25},{"n":"Olivier-Maxence Prosper","a":23},{"n":"Jett Howard","a":22},{"n":"Dariq Whitehead","a":20},{"n":"Marcus Sasser","a":25},{"n":"Ben Sheppard","a":24},{"n":"Tristan Vukcevic","a":22},{"n":"Jordan Walsh","a":21},{"n":"Drew Timme","a":25},{"n":"Leonard Miller","a":22},{"n":"Sidy Cissoko","a":21},{"n":"Trayce Jackson-Davis","a":25},{"n":"Toumani Camara","a":25},{"n":"Jalen Slawson","a":24},{"n":"Jalen Pickett","a":26},{"n":"Colin Castleton","a":25},{"n":"Adam Flagler","a":25},{"n":"Donovan Clingan","a":21},{"n":"Stephon Castle","a":21},{"n":"Reed Sheppard","a":21},{"n":"Jared McCain","a":21},{"n":"Kyshawn George","a":21},{"n":"Tyler Kolek","a":24},{"n":"Johnny Furphy","a":20},{"n":"Jaylon Tyson","a":22},{"n":"Baylor Scheierman","a":25},{"n":"Kevin McCullar Jr.","a":24},{"n":"PJ Hall","a":23},{"n":"Branden Carlson","a":26},{"n":"Cam Spencer","a":25},{"n":"Enrique Freeman","a":25},{"n":"Harrison Ingram","a":22},{"n":"Isaiah Crawford","a":24},{"n":"Jaylen Wells","a":22},{"n":"Justin Edwards","a":21},{"n":"Keshad Johnson","a":24},{"n":"Matas Buzelis","a":21},{"n":"Zyon Pullin","a":24},{"n":"Trey Alexander","a":22},{"n":"Spencer Jones","a":24},{"n":"Emanuel Miller","a":25},{"n":"Yuki Kawamura","a":24},{"n":"Dylan Harper","a":19},{"n":"Cedric Coward","a":22},{"n":"Thomas Sorber","a":19},{"n":"Asa Newell","a":20},{"n":"Will Riley","a":19},{"n":"Rasheer Fleming","a":21},{"n":"Maxime Raynaud","a":22},{"n":"Khaman Maluach","a":19},{"n":"Ryan Kalkbrenner","a":23},{"n":"Noa Essengue","a":18},{"n":"Noah Penda","a":20},{"n":"Carter Bryant","a":20},{"n":"Joan Beringer","a":18},{"n":"Drake Powell","a":20},{"n":"Adou Thiero","a":21},{"n":"Caleb Love","a":24},{"n":"John Tonje","a":24},{"n":"Rocco Zikarsky","a":19},{"n":"Johni Broome","a":23},{"n":"Ryan Nembhard","a":22},{"n":"Tre Johnson","a":19},{"n":"Vladislav Goldin","a":24},{"n":"Chucky Hepburn","a":22},{"n":"Hunter Dickinson","a":25},{"n":"Will Richard","a":22},{"n":"Lachlan Olbrich","a":21},{"n":"Mohamed Diawara","a":20},{"n":"Amari Williams","a":23},{"n":"Brooks Barnhizer","a":23},{"n":"Chaney Johnson","a":23},{"n":"John Poulakidas","a":23},{"n":"Chris Youngblood","a":23},{"n":"Alex Antetokounmpo","a":25},{"n":"Kevin Durant","a":37},{"n":"Kyle Lowry","a":39},{"n":"Jeff Green","a":39},{"n":"Mike Conley","a":38},{"n":"Kevin Love","a":37},{"n":"DeAndre Jordan","a":37},{"n":"Russell Westbrook","a":36},{"n":"Stephen Curry","a":37},{"n":"Jrue Holiday","a":35},{"n":"Kyrie Irving","a":33},{"n":"Kawhi Leonard","a":34},{"n":"Nikola Vucevic","a":35},{"n":"Anthony Davis","a":32},{"n":"Bradley Beal","a":32},{"n":"Harrison Barnes","a":33},{"n":"Khris Middleton","a":34},{"n":"Dennis Schroder","a":32},{"n":"Seth Curry","a":35},{"n":"Rudy Gobert","a":33},{"n":"Kyle Anderson","a":32},{"n":"Marcus Smart","a":31},{"n":"Doug McDermott","a":33},{"n":"Gary Harris","a":31},{"n":"Nikola Jokic","a":30},{"n":"Aaron Gordon","a":30},{"n":"Andrew Wiggins","a":30},{"n":"Jerami Grant","a":31},{"n":"Dwight Powell","a":34},{"n":"Joe Ingles","a":38},{"n":"Nate Williams","a":73},{"n":"Bobby Portis","a":30},{"n":"Kevon Looney","a":29},{"n":"Tyus Jones","a":29},{"n":"Devin Booker","a":29},{"n":"Pat Connaughton","a":32},{"n":"Kelly Oubre Jr.","a":29},{"n":"Brandon Ingram","a":28},{"n":"Jaylen Brown","a":29},{"n":"Jamal Murray","a":28},{"n":"Kris Dunn","a":31},{"n":"Jakob Poeltl","a":30},{"n":"Dejounte Murray","a":29},{"n":"Taurean Prince","a":31},{"n":"Dorian Finney-Smith","a":32},{"n":"Fred VanVleet","a":31},{"n":"Alex Caruso","a":31},{"n":"Malik Monk","a":27},{"n":"Lauri Markkanen","a":28},{"n":"Miles Bridges","a":27},{"n":"Derrick White","a":31},{"n":"Josh Hart","a":30},{"n":"Thomas Bryant","a":28},{"n":"Luke Kennard","a":29},{"n":"Bam Adebayo","a":28},{"n":"Donovan Mitchell","a":29},{"n":"Maxi Kleber","a":33},{"n":"Aaron Holiday","a":29},{"n":"Grayson Allen","a":30},{"n":"Collin Sexton","a":27},{"n":"Mikal Bridges","a":29},{"n":"Mitchell Robinson","a":27},{"n":"Landry Shamet","a":28},{"n":"Jarred Vanderbilt","a":26},{"n":"Duncan Robinson","a":31},{"n":"Kenrich Williams","a":30},{"n":"Isaiah Hartenstein","a":27},{"n":"Jordan McLaughlin","a":29},{"n":"Drew Eubanks","a":28},{"n":"Gabe Vincent","a":29},{"n":"Haywood Highsmith","a":28},{"n":"Ja Morant","a":26},{"n":"Rui Hachimura","a":27},{"n":"Jaxson Hayes","a":25},{"n":"Coby White","a":25},{"n":"Nickeil Alexander-Walker","a":27},{"n":"Ty Jerome","a":28},{"n":"Grant Williams","a":26},{"n":"Daniel Gafford","a":27},{"n":"Nic Claxton","a":26},{"n":"Dean Wade","a":28},{"n":"Max Strus","a":29},{"n":"Amir Coffey","a":28},{"n":"Naz Reid","a":26},{"n":"Anthony Edwards","a":24},{"n":"LaMelo Ball","a":24},{"n":"Isaac Okoro","a":24},{"n":"Onyeka Okongwu","a":24},{"n":"Devin Vassell","a":25},{"n":"Jaden McDaniels","a":20},{"n":"Tre Jones","a":25},{"n":"Anthony Gill","a":33},{"n":"Nick Richards","a":28},{"n":"Isaiah Joe","a":26},{"n":"Tyrese Maxey","a":25},{"n":"Payton Pritchard","a":27},{"n":"Saddiq Bey","a":26},{"n":"Jaden McDaniels","a":25},{"n":"Zeke Nnaji","a":24},{"n":"Naji Marshall","a":27},{"n":"Tre Jones","a":25},{"n":"Josh Green","a":24},{"n":"Jalen Smith","a":25},{"n":"Tyrese Haliburton","a":25},{"n":"Corey Kispert","a":26},{"n":"Sharife Cooper","a":24},{"n":"A.J. Lawson","a":25},{"n":"Jalen Johnson","a":23},{"n":"Franz Wagner","a":24},{"n":"Sam Hauser","a":27},{"n":"Scottie Barnes","a":24},{"n":"Dalano Banton","a":24},{"n":"Ayo Dosunmu","a":25},{"n":"Tre Mann","a":24},{"n":"Josh Giddey","a":23},{"n":"Aaron Wiggins","a":26},{"n":"Trendon Watford","a":24},{"n":"Ziaire Williams","a":24},{"n":"Santi Aldama","a":24},{"n":"Alperen Sengun","a":23},{"n":"Jalen Green","a":23},{"n":"Herbert Jones","a":26},{"n":"Austin Reaves","a":27},{"n":"Mac McClung","a":27},{"n":"Davion Mitchell","a":27},{"n":"Neemias Queta","a":26},{"n":"Ethan Thompson","a":26},{"n":"Olivier Sarr","a":26},{"n":"Chet Holmgren","a":23},{"n":"Paolo Banchero","a":22},{"n":"Keegan Murray","a":25},{"n":"Shaedon Sharpe","a":22},{"n":"Jalen Duren","a":21},{"n":"Dyson Daniels","a":22},{"n":"Bennedict Mathurin","a":23},{"n":"Ousmane Dieng","a":22},{"n":"Ochai Agbaji","a":25},{"n":"Jeremy Sochan","a":22},{"n":"Blake Wesley","a":22},{"n":"Walker Kessler","a":24},{"n":"E.J. Liddell","a":25},{"n":"Trevor Keels","a":22},{"n":"Bryce McGowens","a":22},{"n":"David Roddy","a":24},{"n":"Jalen Williams","a":24},{"n":"Max Christie","a":22},{"n":"Jaylin Williams","a":23},{"n":"Josh Minott","a":23},{"n":"JD Davison","a":23},{"n":"Andrew Nembhard","a":25},{"n":"Jabari Walker","a":23},{"n":"Moussa Diabate","a":23},{"n":"Scotty Pippen Jr.","a":24},{"n":"Ron Harper Jr.","a":25},{"n":"Julian Champagnie","a":24},{"n":"Karlo Matkovic","a":24},{"n":"Simone Fontecchio","a":29}]</script>
 

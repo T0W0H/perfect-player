@@ -149,7 +149,10 @@ check('字符串类奖项（旧存档形态）也能进卡片', () => {
 
 check('赛季总结页确实插入了这块卡片', () => {
   assert.ok(html.indexOf('${buildSeasonHonorCards()}') >= 0, 'showSeasonResults 应渲染本赛季荣誉');
-  const honorsStart = html.indexOf('function showCareerHonors()');
+  // 荣誉墙已并入「生涯数据 → 荣誉墙」页签（renderCareerHonorsTab），
+  // 旧独立页面 showCareerHonors 已删。这里改看活着的那个。
+  const honorsStart = html.indexOf('function renderCareerHonorsTab()');
+  assert.ok(honorsStart > 0, '找不到 renderCareerHonorsTab');
   assert.ok(html.slice(honorsStart, honorsStart + 2000).indexOf('getHonorBadgeClass') >= 0, '荣誉墙应使用统一样式入口');
 });
 

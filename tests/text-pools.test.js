@@ -39,7 +39,8 @@ function readVars(fnName) {
 }
 
 const poolDefs = [
-  { name: 'GOAT_COPY', vars: 'buildGoatHistoryCopy', min: 18 },
+  // GOAT_COPY 由 buildRetirementCopy 渲染（r.goat 时选它），旧渲染器 buildGoatHistoryCopy 已删。
+  { name: 'GOAT_COPY', vars: 'buildRetirementCopy', min: 18 },
   { name: 'HOF_COPY', vars: 'buildHofCopy', min: 127 },
   { name: 'HOF_FAIL_COPY', vars: 'buildHofCopy', min: 84 },
   { name: 'RETIREMENT_COPY', vars: 'buildRetirementCopy', min: 340 },
