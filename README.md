@@ -51,6 +51,30 @@ python -m http.server 8035
 - 新增的运行时引用图片需要显式提交：`git add -f assets/data/historical/headshots/<文件名>`
 - `assets/data/historical/*.json`（`players.json` 等）来自外部数据源，仓库里没有生成脚本，**必须保留**
 
+## 生涯评价：留队 ≠ 单核
+
+这两件事以前是混着的：评价里只有「留队 / 换队」一个维度（看球队数），
+所以一直留守的人会被写成「一个人扛起球队」——但留队只是没走，单核是队里真的只有你。
+
+现在单核单独判，且与现有的 `TEAMMATE_USAGE_RULES.starOvr`（88）同口径：
+
+- **单核赛季**：你是全队唯一的总评 88+（自己 ≥ 88 且队内没有第二个 88+）。
+- 队友实力会随交易/成长变，事后无法从存档反推，所以 `saveCurrentSeasonToCareer()`
+  在当年就把 `soloCore` / `teammateStars` 写进赛季记录；旧存档没这个字段只当没有，不报错。
+- 名单拿不到时不下结论（返回 false）——宁可不算，也不凭空给玩家发荣誉。
+- 生涯层：单核 ≥ 3 季 → `solo_core` 标签；单核赛季里拿到总冠军 → `solo_champion`。
+
+接入两套评价：
+
+- 生涯评价文案（`CAREER_EVAL_PARAGRAPHS`）新增 `solocore` / `solocore_champion` 两个类别，
+  由 `buildCareerEvaluationScores()` 按单核赛季数打分（2/3/5 季 → 3/6/8 分，单核夺冠额外 9 分）。
+- 生涯传记（`CAREER_BIOGRAPHY_RULED_COPY`）的 title / lead / core 三个段落各加了
+  带 `solo_core`、`solo_champion` 标签的写法；`shape` 也会被单核盖过，
+  保证「留队的单核」和「留队的普通球星」写法不同。
+
+`tests/solo-core.test.js` 守住判定边界（88 分线、_isUser 不算队友球星、空名单不下结论、
+旧存档兼容）、留队≠单核、以及新文案的占位符体检（无冠时不许引用 `{冠军线}`）。
+
 ## 开发约定
 
 - 改完功能先验证：逐个跑 `tests/*.test.js`，再跑一遍内联脚本语法检查

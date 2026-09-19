@@ -6076,6 +6076,9 @@ function showAwardsScreen() {
 
   var rowsHtml = '';
   var order = ['mvp', 'dpoy', 'mip', 'allStar', 'roty', 'sixthman', 'allNBA', 'allDefense', 'allRookie', 'scoring', 'rebound', 'assist', 'three', 'steal', 'block'];
+  // 入场延迟：以前是每行 1 秒（ idx * 1.0 ），15 个奖项时最后一行要等 14 秒才浮现，
+  // 数据王又恰好排在最后，体感就是“根本没有数据王”。改成快速连串，整页 2 秒内出完。
+  var AWARD_STAGGER = 0.12;
   var isFirstAwardSeason = !STATE.career || STATE.career.seasonCount === 0;
   var rowsRendered = 0;
   for (var oi = 0; oi < order.length; oi++) {
@@ -6141,7 +6144,7 @@ function showAwardsScreen() {
     }
 
     rowsHtml +=
-      '<div class="award-row" data-track-pos="T' + (idx + 2) + '" data-track-label="' + cat + '" style="display:flex;align-items:center;background:var(--bg-card);border:1px solid var(--border);border-radius:12px;overflow:hidden;' + (idx < rowsRendered - 1 ? 'margin-bottom:5px;' : '') + 'animation-delay:' + (idx * 1.0) + 's;">' +
+      '<div class="award-row" data-track-pos="T' + (idx + 2) + '" data-track-label="' + cat + '" style="display:flex;align-items:center;background:var(--bg-card);border:1px solid var(--border);border-radius:12px;overflow:hidden;' + (idx < rowsRendered - 1 ? 'margin-bottom:5px;' : '') + 'animation-delay:' + (idx * AWARD_STAGGER).toFixed(2) + 's;">' +
         // 头像区
         '<div style="padding:0 0 0 12px;flex-shrink:0;">' + headshotHtml + '</div>' +
         // 获奖信息
@@ -6627,6 +6630,41 @@ function getTeammateUsageFactor(pos) {
     factor -= Math.min(TEAMMATE_USAGE_RULES.maxStarPenalty, (stars - 1) * TEAMMATE_USAGE_RULES.perExtraStar);
   }
   return Math.max(0.72, Math.min(1.08, factor));
+}
+
+/** 队内 88+ 球星数（不含自己） */
+function countTeammateStars() {
+  var roster = (typeof NBA2K_DATA !== 'undefined' && NBA2K_DATA && STATE.careerTeam) ? (NBA2K_DATA[STATE.careerTeam] || []) : [];
+  var stars = 0;
+  roster.forEach(function(p) {
+    if (!p || p._isUser) return;
+    if ((parseInt(p.ovr) || 0) >= TEAMMATE_USAGE_RULES.starOvr) stars++;
+  });
+  return stars;
+}
+
+/**
+ * 单核赛季：你是全队唯一的总评 88+ 球员。
+ * 「留队」和「单核」是两件事：留队只是没走，单核是队里真的只有你一个人扛。
+ * 前者看球队数，后者看队友实力，所以必须分开判定（以前只有前者，
+ * 导致留守球员会被当成单核来写）。
+ */
+function isSoloCoreSeason() {
+  var roster = (typeof NBA2K_DATA !== 'undefined' && NBA2K_DATA && STATE.careerTeam) ? (NBA2K_DATA[STATE.careerTeam] || []) : [];
+  // 名单拿不到就不下结论（宁可不算单核，也不想凭空给玩家发荣誉）
+  if (!roster.length) return false;
+  if ((Number(STATE.finalOVR) || 0) < TEAMMATE_USAGE_RULES.starOvr) return false;
+  return countTeammateStars() === 0;
+}
+
+/** 生涯里的单核赛季（旧存档没存这个字段，只当没有，不报错） */
+function getSoloCoreSeasons() {
+  return (((STATE && STATE.career) || {}).seasons || []).filter(function(s) { return !!(s && s.soloCore); });
+}
+
+/** 单核夺冠：单核赛季里拿到了总冠军 */
+function hasSoloCoreChampionship() {
+  return getSoloCoreSeasons().some(function(s) { return (s.playoffResult || '').indexOf('总冠军') >= 0; });
 }
 
 // ==================== 球队实力的影响权重 ====================
@@ -10243,6 +10281,10 @@ function saveCurrentSeasonToCareer() {
     playoffResult: playoffResult || (STATE.season.playoffBracket ? '季后赛' : '未晋级'),
     awards: honorList,
     eventTimeline: JSON.parse(JSON.stringify((STATE.season.events && STATE.season.events.storyTimeline) || [])),
+    // 单核：本季你是全队唯一的 88+（队友实力会随交易/成长变，所以必须当年存下来，
+    // 事后无法从存档里反推）
+    soloCore: typeof isSoloCoreSeason === 'function' ? isSoloCoreSeason() : false,
+    teammateStars: typeof countTeammateStars === 'function' ? countTeammateStars() : 0,
   };
   c.seasons.push(seasonRecord);
   c.lastCompletedSeasonSnapshot = JSON.parse(JSON.stringify(seasonRecord));
@@ -23645,6 +23687,27 @@ var CAREER_EVAL_PARAGRAPHS = {
     "你退役后，队医说：他是那种让医生又心疼又敬佩的球员。{生涯体量}。你让疼痛最终变成了勋章。",
     "你让所有受过伤的人相信，热爱可以穿过疼痛。{生涯体量}。你站在球场上的每一天，都是这句话的证明。",
   ],
+  "solocore": [
+    "那些年{最长球队}的战术板其实只有一个问题：今晚他能不能撑住。{生涯体量}。队里没有第二个球星，所有防守都朝他扑过来，他仍然把大多数夜晚打成了答案；撑不住的那几场，他第二天照常出现在训练馆。",
+    "他不是没有机会去一支更轻松的球队，而是选择了留下来一个人扛。{球队线}。{生涯体量}。场均{场均得分}分里有一部分不属于天赋，而属于每一次被包夹时依旧把球护住的那只手。",
+    "队友换了一批又一批，只有他一直在那里。{生涯体量}。他是所有人知道该把球交给谁的那个人，也是输球后第一个被镜头对准的人。他没有抱怨过这件事，只是把责任越接越重。",
+    "他一个人扛着{最长球队}走过了最难的几年。{球队线}。{生涯体量}。别人看到的是他每晚的高分，教练看到的是他在暂停时还要把队友聚回来、把话说清楚。",
+    "单核这两个字听起来很壮，实际上是很多个不得不自己解决的夜晚。{生涯体量}。他没有等来第二个帮手，就先把球队带到了该去的位置，再等管理层慢慢把阵容补齐。",
+    "他把一支并不完整的球队打成了有脾气的球队。{球队线}。{生涯体量}。当对手把防守全部压到他身上时，队友得到的每一次空位，都是他先被撞了一下换来的。",
+    "他的巅峰期没有捷径。{生涯体量}。队里只有他一个球星，所以每一场关键球都得由他来决定，每一次失利也都由他先开口。他从来没有把这些当成委屈。",
+    "在{最长球队}的那些年，他不只是最好的球员，也是唯一那个必须一直在线的人。{生涯体量}。他不能低迷，不能请假，不能在输球后沉默，因为整支球队只有他一个人站在那个位置。",
+    "他让{最长球队}在没有第二个球星的那些年里，仍然打出了属于自己的尊严。{球队线}。{生涯体量}。这不是靠运气凑出来的季后赛席位，是他一个一个回合扛回来的。",
+    "他把球队的胜负背在身上，而且背了很多年。{生涯体量}。当别人用“可惜帮手太少”替他惋惜时，他只是说：那我多做一点。",
+  ],
+  "solocore_champion": [
+    "他拿到{冠军线}的那一年，队里没有第二个球星。所有防守都朝他扑过来，他把球分出去，也把责任收回来。{生涯体量}。所以他举起奖杯时，队友比谁都清楚那座奖杯是怎么被扛上去的。",
+    "{冠军线}。这几个字放在别人履历里是一行，放在他身上是一整段：单核的阵容、被针对的每一个回合、以及他在关键战里一次次自己解决的选择。{球队线}。",
+    "他证明了单核也能夺冠，代价是那几年他的使用率、被包夹次数和出场时间全部排在联盟最前面。{冠军线}。{生涯体量}。奖杯很轻，故事很重。",
+    "很多人说单核夺冠是童话，他把童话打成了{冠军线}。{球队线}。{生涯体量}。夺冠夜的更衣室里，他说得最多的一句话是：谢谢你们愿意跟着我跑。",
+    "{冠军线}，而且是一支没有第二个球星的队伍拿到的。他的价值不在得分栏，而在于他把一支并不被看好的球队，硬生生带到了所有人必须认真对待的位置。",
+    "他在最该被分担的年纪，没有得到分担，反而接下了所有关键回合。{冠军线}。{生涯体量}。这让他的履历里多了一句别人不太敢写的话：那年，是他一个人把球队带过去的。",
+    "别人夺冠靠阵容，他夺冠靠把自己拆开用在每一节。{冠军线}。{球队线}。{生涯体量}。那枚戒指的分量，队里的每一个角色球员都比外界更清楚。",
+  ],
   "ordinary": [
     "他没有被称作天才，却比大多数天才更早来到训练馆。{生涯体量}。{球队线}。他让职业两个字有了最踏实的重量。",
     "他把每一场比赛都打得像第一场，也像最后一场。{生涯体量}。他的故事不喧哗，却让很多人悄悄记住了。",
@@ -23841,6 +23904,13 @@ function buildCareerEvaluationScores() {
   if (teams.length === 1 && (c.seasons || []).length >= 8) add('loyalty', 8);
   else if (longest >= 8) add('loyalty', 5);
   else if (longest >= 5) add('loyalty', 2);
+  // 单核：与「留队」分开计分——留队看球队数，单核看队友实力。
+  // 队里只有你一个人却能被写成单核，两个条件都满足时两者会同时进候选池。
+  var soloCoreYears = typeof getSoloCoreSeasons === 'function' ? getSoloCoreSeasons().length : 0;
+  if (soloCoreYears >= 5) add('solocore', 8);
+  else if (soloCoreYears >= 3) add('solocore', 6);
+  else if (soloCoreYears >= 2) add('solocore', 3);
+  if (typeof hasSoloCoreChampionship === 'function' && hasSoloCoreChampionship()) add('solocore_champion', 9);
   if (teams.length >= 4) add('journey', 5);
   else if (teams.length === 3) add('journey', 3);
   if (!roty && allStar >= 3) add('late', 5);
@@ -24128,6 +24198,11 @@ var CAREER_BIOGRAPHY_RULED_COPY = {
     { tags:['default'], text:'{姓名}：把{球员类型}活成一座城市的习惯' },
     { tags:['one_city','playmaker'], text:'{姓名}：{首队}的球权在他手里时，所有人都安心' },
     { tags:['multi_city','no_ring'], text:'{姓名}：走到哪，哪里的更衣室就先学会相信' },
+    { tags:['solo_core'], text:'{姓名}：队里没有第二个球星的那些年，他就是{首队}全部的答案' },
+    { tags:['solo_core'], text:'{姓名}：一个人扛着{首队}走过{赛季数}年，扛出了{核心荣誉}' },
+    { tags:['solo_core'], text:'{姓名}：场均{场均得分}分背后，是一支没有第二个球星的球队' },
+    { tags:['solo_champion'], text:'{姓名}：{冠军线}，而且是一个人把球队带过去的那种' },
+    { tags:['solo_champion'], text:'{姓名}：没有第二个球星的冠军，比明星扎堆的奖杯更重' },
     { tags:['champion','late_peak'], text:'{姓名}：晚年的冠军，是时间对他最温柔的回礼' },
     { tags:['scorer'], text:'{姓名}：每一分都来自重复，重复里藏着热爱' },
     { tags:['defender','late_peak'], text:'{姓名}：老将的防守，是提前一步的预判' },
@@ -24184,6 +24259,9 @@ var CAREER_BIOGRAPHY_RULED_COPY = {
     { tags:['one_city'], text:'{姓名}的故事，最动人的地方在于它有一条清晰的归途。从进入联盟的第一天起，{首队}的球迷就看着他犯错、成长、承担、成熟。{赛季数}年过去，他不只是球队名单上的名字，更像是一段共同生活过的时间。' },
     { tags:['multi_city'], text:'{姓名}的生涯不是一条只通往一个地方的路。{首尾线}，而{球队列表}这些不同颜色的球衣，共同串起了他漫长的篮球人生。每一次换上新的球衣，他都要重新认识一座城市，也让那座城市重新认识什么叫可靠。' },
     { tags:['no_ring'], text:'如果只用总冠军衡量{姓名}，这会是一种很粗糙的读法。他的生涯里有{赛季数}个赛季、{场次}场比赛、{总得分}分，也有很多无法被戒指概括的夜晚：他扛住球权，接住质疑，陪球队走过并不总是圆满的年份。' },
+    { tags:['solo_core'], text:'{姓名}的巅峰期有一个前提，很多人后来才慢慢意识到：那几年的{最长球队}，队里只有他一个球星。所以他每一场都要面对最重的防守，也每一次都要在输球后第一个开口。{生涯体量}。他没等来第二个帮手，就先把球队带到了该去的位置。' },
+    { tags:['solo_core'], text:'把{姓名}的生涯分成两半，一半是他一个人扛着的那些赛季，一半是队友终于长起来之后的日子。前者决定了他的硬度：{赛季数}年里，他几乎不能低迷，因为球队没有第二个可以接手的人。{生涯体量}。' },
+    { tags:['solo_champion'], text:'{姓名}的{冠军线}比大多数冠军更难被复制，因为那支球队里没有第二个球星。所有关键回合都指向他，所有针对防守也指向他，而他仍然把那条路走完了。{生涯体量}。这不是运气，是一种硬碰硬的证明。' },
     { tags:['default'], text:'数据会说，{姓名}生涯出战{场次}场，得到{总得分}分，场均{场均得分}分{场均篮板}篮板{场均助攻}助攻。这些数字足够漂亮，却仍然只是目录。真正认识他的人会记得更多细小的画面：他在暂停时拍拍队友的背，也在输球后最后一个离开球馆。' },
     { tags:['playmaker','champion'], text:'如果给{姓名}的生涯找一个起点，那不会是某一场数据爆发，而是他第一次学会把球传给更合适的人。从那以后，{核心荣誉}只是结果，真正被记住的是他怎样让身边的队友越来越好，让整支球队越来越像一支球队。' },
     { tags:['defender','one_city'], text:'人们谈起{姓名}时，最先说起的常常不是某场高分，而是那些没有进入集锦的回合：一次提前卡位、一次补防、一次在输球边缘仍然把节奏稳住的暂停。他在{首队}的{赛季数}年，就是把这种看不见的贡献一天天变成球队习惯的过程。' },
@@ -24356,6 +24434,8 @@ var CAREER_BIOGRAPHY_RULED_COPY = {
     { tags:['dynasty'], text:'王朝从来不是某一个夜晚突然降临的，它更像一种漫长的互相信任。{姓名}在那些年里既是战术核心，也是情绪锚点；既要打出数据，也要替全队承担输球后的第一轮质问。可他从不把压力说得很重，赢球后先找队友拥抱，输球后先说自己的责任。' },
     { tags:['champion'], text:'总冠军改变了{姓名}的履历，也改变了{冠军球队}谈起篮球时的语气。夺冠夜结束后，很多人记得彩带、香槟和奖杯，但真正跟过那个赛季的人，更记得他在最难那轮系列赛里一次次把球队从边缘拉回来。那些回合没有每一个都成为经典镜头，却都被球迷悄悄收进了自己的青春里。' },
     { tags:['default'], text:'他的巅峰并不是某一场突然爆发，而是一段持续稳定的陪伴。无论球队需要得分、组织、防守，还是需要有人在更衣室里先开口，{姓名}都习惯把责任接过来。他不总是用最响的方式回答，却总能让身边的人觉得比赛还有办法。' },
+    { tags:['solo_core'], text:'把{姓名}称为单核并不是一种浪漫，而是当时的客观事实：队里没有第二个球星。他被包夹时没有第二个持球点可以分担，他低迷时没有第二个人能顶上来。这不是他想要的结构，却是他接受下来的责任。' },
+    { tags:['solo_champion'], text:'单核夺冠是{姓名}履历里最硬的一页。{冠军线}，而那一年球队的战术板上，真正能在关键回合解决问题的人只有一个。他把最难的版本赢了下来，于是那枚戒指也最重。' },
     { tags:['champion','playmaker'], text:'{冠军球队}夺冠的赛季里，{姓名}做了许多技术统计无法完整记录的事。他在关键回合选择相信队友，在暂停时把所有人拉回同一条思路，也在最难的时候先接过责任。总冠军会写进履历，但更衣室会永远记得他把大家带向那里的方式。' },
     { tags:['scorer','champion'], text:'场均{场均得分}分让{姓名}成为对手防守计划里的第一行，而他偏偏还能在那种关注下继续高效。他真正让队友安心的，不只是得分，而是他知道什么时候该自己来，什么时候该把球给正在起势的队友。' },
     { tags:['defender'], text:'巅峰期的{姓名}是那种让你在赛前计划里专门写一段的球员。他让对手的强点被迫调整，让队友的防守敢于向前，也让教练在布置战术时多了一种“把最难的人交给他”的底气。' },
@@ -25476,6 +25556,10 @@ function analyzeCareerNarrative(facts) {
   if (dpoy >= 2 || avgDef >= 3.2) tags.push('defender');
   if (avgPts >= 24 || mvp >= 1) tags.push('scorer');
   if (avgAst >= 6.5) tags.push('playmaker');
+  // 单核：跟「留队」分开算。留队看球队数，单核看队友实力（当年存下来的 soloCore）。
+  var soloCoreYears = typeof getSoloCoreSeasons === 'function' ? getSoloCoreSeasons().length : 0;
+  if (soloCoreYears >= 3) tags.push('solo_core');
+  if (typeof hasSoloCoreChampionship === 'function' && hasSoloCoreChampionship()) tags.push('solo_champion');
   var latePeak = false;
   var eras = analyzeTeamEras(facts);
   if (eras.length) {
@@ -25497,7 +25581,9 @@ function analyzeCareerNarrative(facts) {
   else if (tags.indexOf('three_city') >= 0) shape = 'three_city';
   else if (tags.indexOf('multi_city') >= 0) shape = 'multi_city';
   if (tags.indexOf('regret_star') >= 0) shape = 'regret_star';
-  return { tags: tags, primary: primary, shape: shape };
+  // 单核是比「留队/换队」更具体的一层：队里只有他一个人时，叙述以单核为准
+  if (tags.indexOf('solo_core') >= 0 || tags.indexOf('solo_champion') >= 0) shape = 'solo_core';
+  return { tags: tags, primary: primary, shape: shape, soloCoreYears: soloCoreYears };
 }
 
 function buildEraBiographyTags(era, eraIndex, totalEras, careerTags) {
