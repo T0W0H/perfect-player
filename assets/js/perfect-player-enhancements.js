@@ -55,7 +55,7 @@
 '.pp-ach-badge{position:relative;width:46px;height:46px;flex:0 0 46px}',
 '.pp-ach-badge-ring{position:absolute;inset:0}',
 '.pp-ach-badge-ic{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:21px}',
-'.pp-ach-item.got .pp-ach-badge-ring .pp-ring-arc{animation:ppRingSpin 4s linear infinite;transform-origin:50% 50%}',
+'.pp-ach-item.got .pp-ach-badge-ring .pp-ring-spin{animation:ppRingSpin 4s linear infinite}',
 '.pp-ach-meta{flex:1;min-width:0}',
 '.pp-ach-name{font-family:var(--font-display,sans-serif);font-size:14.5px;font-weight:800;color:#2d1f0e;',
 '  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
@@ -65,7 +65,7 @@
 '.pp-ach-item.got.rarity-legend .pp-ach-rarity{background:rgba(247,166,0,.16);color:#c48a00}',
 '.pp-ach-item.got.rarity-epic .pp-ach-rarity{background:rgba(183,164,232,.2);color:#7d5fd0}',
 '.pp-ach-item.got.rarity-rare .pp-ach-rarity{background:rgba(46,196,182,.16);color:#1f9e91}',
-'@media(prefers-reduced-motion:reduce){.pp-ring-arc,.pp-ach-fab::after{animation:none!important}}',
+'@media(prefers-reduced-motion:reduce){.pp-ring-spin,.pp-ach-fab::after{animation:none!important}}',
 // —— 传承祭坛 ——
 '.pp-lg-open-btn{border:none;cursor:pointer;background:linear-gradient(135deg,#b7a4e8,#ff6b35);color:#fff;',
 '  font-family:var(--font-display,sans-serif);font-weight:700;font-size:12px;padding:7px 12px;border-radius:20px;',
@@ -137,12 +137,16 @@
 '  transform:translate(-50%,-140%);z-index:9300;display:flex;align-items:center;gap:12px;width:min(360px,92vw);',
 '  padding:12px 16px 12px 12px;border-radius:16px;background:linear-gradient(135deg,#fffaf2,#fff2d9);',
 '  box-shadow:0 14px 40px rgba(45,31,14,.28);border:2px solid var(--gold,#f7a600);',
-'  transition:transform .5s cubic-bezier(.16,.9,.3,1.1),opacity .4s ease;opacity:0;pointer-events:none}',
+'  transition:transform .5s cubic-bezier(.16,.9,.3,1.1),opacity .4s ease;opacity:0;pointer-events:none;',
+'  will-change:transform,opacity}',
 '.pp-ach-pop.show{transform:translate(-50%,0);opacity:1}',
 '.pp-ach-pop.rarity-common{border-color:#9fb0bf}.pp-ach-pop.rarity-rare{border-color:#2ec4b6}',
 '.pp-ach-pop.rarity-epic{border-color:#b7a4e8}.pp-ach-pop.rarity-legend{border-color:var(--gold,#f7a600);',
 '  background:linear-gradient(135deg,#fff7e6,#ffe9c2)}',
-'.pp-ach-pop-ring{position:absolute;left:12px;top:50%;transform:translateY(-50%);width:52px;height:52px;pointer-events:none}',
+'.pp-ach-pop-ring{position:absolute;left:12px;top:50%;width:52px;height:52px;pointer-events:none;',
+'  transform:translateY(-50%) scale(.62);opacity:0;will-change:transform,opacity;',
+'  transition:transform .45s cubic-bezier(.16,.9,.3,1.1),opacity .3s ease}',
+'.pp-ach-pop.show .pp-ach-pop-ring{transform:translateY(-50%) scale(1);opacity:1}',
 '.pp-ach-pop-ic{width:52px;height:52px;flex:0 0 52px;display:flex;align-items:center;justify-content:center;',
 '  font-size:26px;position:relative;z-index:1}',
 '.pp-ach-pop-body{flex:1;min-width:0}',
@@ -150,8 +154,11 @@
 '  color:var(--orange,#ff6b35);text-transform:uppercase}',
 '.pp-ach-pop-name{font-family:var(--font-display,sans-serif);font-size:17px;font-weight:800;color:#2d1f0e;margin:1px 0 2px}',
 '.pp-ach-pop-desc{font-size:12px;color:#8a7a66;line-height:1.35}',
-'.pp-ring-arc{animation:ppRingSpin 3.4s linear infinite;transform-origin:50% 50%}',
-'@keyframes ppRingSpin{to{transform:rotate(270deg)}}',
+// 旋转动画挂在外层 HTML 容器上（走合成层），不再直接动 SVG 圆：
+// SVG 元素上跑 transform 动画会逐帧在主线程重绘，卡片滑入（合成层）时就会显得“慢半拍”。
+'.pp-ring-spin{width:100%;height:100%;backface-visibility:hidden}',
+'.pp-ach-pop .pp-ring-spin{animation:ppRingSpin 3.4s linear infinite;will-change:transform}',
+'@keyframes ppRingSpin{from{transform:rotate(0)}to{transform:rotate(360deg)}}',
 ''
 ].concat(PP_FX_CSS_PANEL).join('\n');
   injectStyle();
@@ -421,14 +428,14 @@
       legend: ['#f7a600', '#ff6b35']
     }[rarity] || ['#ff6b35', '#f7a600'];
     var gid = 'ppg_' + rarity;
-    return '<svg viewBox="0 0 100 100" width="100%" height="100%" aria-hidden="true">' +
+    return '<div class="pp-ring-spin"><svg viewBox="0 0 100 100" width="100%" height="100%" aria-hidden="true">' +
       '<defs><linearGradient id="' + gid + '" x1="0" y1="0" x2="1" y2="1">' +
       '<stop offset="0%" stop-color="' + stops[0] + '"/><stop offset="100%" stop-color="' + stops[1] + '"/>' +
       '</linearGradient></defs>' +
       '<circle class="pp-ring-track" cx="50" cy="50" r="44" fill="none" stroke="rgba(0,0,0,.08)" stroke-width="5"/>' +
       '<circle class="pp-ring-arc" cx="50" cy="50" r="44" fill="none" stroke="url(#' + gid + ')" stroke-width="5" ' +
       'stroke-linecap="round" stroke-dasharray="210 300" transform="rotate(-90 50 50)"/>' +
-      '</svg>';
+      '</svg></div>';
   }
   PP_FX.achRingSVG = achRingSVG;
 

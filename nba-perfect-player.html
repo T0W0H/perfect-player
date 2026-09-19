@@ -19832,6 +19832,19 @@ function showRosterReview() {
   html += '<div style="margin-top:10px;"><button class="btn btn-primary" onclick="startNewSeason()" style="max-width:240px;">🏀 开始新赛季</button></div>';
   html += '</div>';
 
+  // 本赛季定位：首发 / 第六人（放在最上方，否则会被名单挤到屏幕外）
+  var isBenchRole = !!(c.flags && c.flags.startBench);
+  html += '<div style="margin-top:8px;background:var(--bg-card);border:2px solid ' + (isBenchRole ? 'var(--orange)' : 'var(--border)') + ';border-radius:var(--radius-sm);padding:8px 10px;">';
+  html += '<div style="font-family:var(--font-display);font-size:11px;color:var(--orange);letter-spacing:0.5px;">🎯 本赛季定位</div>';
+  html += '<div style="display:flex;gap:6px;margin-top:6px;">';
+  html += '<button class="btn btn-sm ' + (isBenchRole ? 'btn-secondary' : 'btn-primary') + '" onclick="setSeasonRole(\'starter\')" style="flex:1;">首发</button>';
+  html += '<button class="btn btn-sm ' + (isBenchRole ? 'btn-primary' : 'btn-secondary') + '" onclick="setSeasonRole(\'bench\')" style="flex:1;">第六人</button>';
+  html += '</div>';
+  html += '<div style="font-size:10px;color:var(--text-dim);margin-top:5px;line-height:1.5;">' + (isBenchRole
+    ? '替补出发：时间更少，场均 18+ 分可竞争最佳第六人'
+    : '首发出场：正常轮换（第六人奖项只评替补）') + '</div>';
+  html += '</div>';
+
   // 阵容列表
   html += '<div style="margin-top:8px;background:var(--bg-card);border:2px solid var(--border);border-radius:var(--radius-sm);padding:8px 4px;">';
   html += '<div style="font-family:var(--font-display);font-size:11px;color:var(--orange);padding:2px 4px 4px;letter-spacing:0.5px;">🏀 首发阵容</div>';
@@ -19846,19 +19859,6 @@ function showRosterReview() {
       html += renderPlayer(p, p._isUser);
     });
   }
-  html += '</div>';
-
-  // 本赛季定位：首发 / 第六人（会影响上场时间与最佳第六人评选）
-  var isBenchRole = !!(c.flags && c.flags.startBench);
-  html += '<div style="margin-top:8px;background:var(--bg-card);border:2px solid var(--border);border-radius:var(--radius-sm);padding:8px 10px;">';
-  html += '<div style="font-family:var(--font-display);font-size:11px;color:var(--orange);letter-spacing:0.5px;">🎯 本赛季定位</div>';
-  html += '<div style="display:flex;gap:6px;margin-top:6px;">';
-  html += '<button class="btn btn-sm ' + (isBenchRole ? 'btn-secondary' : 'btn-primary') + '" onclick="setSeasonRole(\'starter\')" style="flex:1;">首发</button>';
-  html += '<button class="btn btn-sm ' + (isBenchRole ? 'btn-primary' : 'btn-secondary') + '" onclick="setSeasonRole(\'bench\')" style="flex:1;">第六人</button>';
-  html += '</div>';
-  html += '<div style="font-size:10px;color:var(--text-dim);margin-top:5px;line-height:1.5;">' + (isBenchRole
-    ? '替补出发：时间更少，场均 18+ 分可竞争最佳第六人'
-    : '首发出场：正常轮换（第六人奖项只评替补）') + '</div>';
   html += '</div>';
 
   html += '</div>';
