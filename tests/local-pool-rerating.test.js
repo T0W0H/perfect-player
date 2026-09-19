@@ -45,8 +45,12 @@ check('校准函数被挂到 window 上，可以被重新调用', () => {
   assert.equal(typeof ctx.window.applyCurrentPlayerRatings2026, 'function', '应导出 applyCurrentPlayerRatings2026');
 });
 
-check('初始加载后，戈贝尔是校准后的数据（篮板 A+）', () => {
-  assert.ok(calibrated.REB >= 95, '校准后的篮板应在 A+ 档：' + calibrated.REB);
+check('初始加载后，戈贝尔是 2K26 的数据（防守支柱）', () => {
+  // 唯一评分来源是 2K26：戈贝尔篮板 84（2K 的 off 83 / def 84 加权），内防 94、盖帽 77。
+  // 不再断言旧刻度的 A+（≥95），那是按模拟器拟合的老尺子，已经被 2K 刻度取代。
+  assert.equal(calibrated.REB, 84, '戈贝尔篮板应是 2K26 的值：' + calibrated.REB);
+  assert.ok(calibrated.IDEF >= 90, '戈贝尔内防应是顶级：' + calibrated.IDEF);
+  assert.equal(before.ratingSource, 'nba-2k26', '应标出来源');
 });
 
 check('伪造本地名单整队覆盖后，属性确实被冲掉（复现线上/本地不一致）', () => {

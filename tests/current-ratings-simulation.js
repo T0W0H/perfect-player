@@ -200,7 +200,10 @@ for (let i = 0; i < strengthGames; i++) {
   if (macroContext.simulate82StyleMatchup('A','B',{ teamAHome:i % 2 === 0, includeBoxScore:false, neutralState:true }).won) strongWins++;
 }
 const strongWinRate = strongWins / strengthGames;
-assert.ok(strongWinRate > 0.84 && strongWinRate < 0.97, 'large team-strength gap must create a clear but beatable favorite: ' + strongWinRate);
+// 2c447cc 把 efficiencyPerEdge 从 0.0034 提到 0.005（让球队实力更重要），
+// 16 点的极端差距（最好打最差）胜率从 92% 升到 97.8%，仍是可爆冷的（约 2% 下克上）。
+// 上限从 0.97 放到 0.99，跟上引擎的既定强度；真想调胜率去改 TEAM_IMPACT，别改这里。
+assert.ok(strongWinRate > 0.84 && strongWinRate < 0.99, 'large team-strength gap must create a clear but beatable favorite: ' + strongWinRate);
 
 console.log(JSON.stringify({
   ratings:{ teams:30, players:525, seasonMatches:517, noSeasonGames:8, top:topRatings },

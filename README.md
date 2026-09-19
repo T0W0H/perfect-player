@@ -107,11 +107,11 @@ node tools/build_historical_rookie_pool.mjs
 
 同一份名单在启动时会被多次写入，顺序固定，每步只负责一件事：
 
-1. `assets/js/hupu/script-01-*.js`：基础名单（30 队 / 525 人）。
-2. `assets/js/current-player-ratings-2026.js`：**唯一权威属性来源**。用 2025-26 真实赛季数据
-   （per-game / advanced / shooting）换算成 13 项属性逐人覆盖，并标上 `ratingSeason` / `ratingBasis`。
+1. `assets/js/hupu/script-01-*.js`：基础名单（30 队 / 525 人，虎扑 BuildPlayer 的 `NBA2K_DATA`）。
+2. `assets/js/current-player-ratings-2026.js`：**唯一权威属性来源**。13 项属性直接采用 2K26
+   数值（见下节），逐人覆盖并标上 `ratingSeason` / `ratingBasis` / `ratingSource`。
    重新生成：`node tools/update_current_player_ratings_2026.mjs`，然后接着跑
-   `node tools/merge_2k_ratings.mjs`（借 2K 的护球/关键排序，见下节）。
+   `node tools/merge_2k_ratings.mjs`（把 2K 数值合进来，否则会被真实数据推导冲掉）。
 3. `assets/data/local/nba2k-data.local.js`（可选）：默认**不加载**，只有显式带上 `?localpool=1` 才生效。
    该文件与仓库自带名单的人员完全相同（实测 30 队 / 525 人 / 零差异），只会提供另一套属性，
    所以没必要让它参与启动顺序；真需要覆盖名单时再开参数。
@@ -127,57 +127,40 @@ node tools/build_historical_rookie_pool.mjs
 剧情 / 训练里写的属性键必须落到 13 项真实属性或 `ATTR_KEY_ALIAS`（STA 耐力 → 体能负荷、
 STL 抢断 → 运动），由 `tests/attribute-keys.test.js` 把关。
 
-## NBA 2K 属性：只借了护球和关键的排序
+## NBA 2K 属性：13 项直接用 2K26
 
-13 项属性里，护球（HAN）和关键（CLU）没有直接对应的统计口径，只能靠近似公式猜。
-2K 有对应分项，所以把这两项的**排序**借了过来，合进上面那份唯一评分文件：
+这 13 项属性的定义本来就源于 2K（基础名单就是 `NBA2K_DATA`，连 archetype 都是 2K 的），
+而且这份 CSV 是 2K26 的 2025-26 快照（弗拉格在独行侠、杜兰特在火箭、东契奇在湖人），
+正好就是这个游戏模拟的赛季。所以维护自己的一套推导公式没有意义——直接用 2K，低一点也没关系：
 
 ```bash
 # 输入：assets/data/local/nba2k25_current.csv（本地，不进仓库）
 curl -sSL -o assets/data/local/nba2k25_current.csv \
   https://raw.githubusercontent.com/ReinerJasin/NBA2k25_Web_Scraping/main/output/current_nba_players.csv
 
-node tools/merge_2k_ratings.mjs              # 合并（幂等，重复跑会被挡）
+node tools/merge_2k_ratings.mjs              # 默认 full：13 项直接用 2K（幂等）
 node tools/merge_2k_ratings.mjs --dry-run    # 只出报告，不写文件
-node tools/merge_2k_ratings.mjs --only=HAN   # 单独验证某一项的收益
+node tools/merge_2k_ratings.mjs --mode=shape # 旧实验：只借 HAN / CLU 的排序
 ```
 
-数据来自 2K25 抓取数据集（2kratings.com，经 [ReinerJasin/NBA2k25_Web_Scraping](https://github.com/ReinerJasin/NBA2k25_Web_Scraping) 的 MIT 脚本导出）。
+数据来自 2K 抓取数据集（2kratings.com，经 [ReinerJasin/NBA2k25_Web_Scraping](https://github.com/ReinerJasin/NBA2k25_Web_Scraping) 的 MIT 脚本导出）。
+390 人整份采用 2K（含总评 `overall`），2K 没有分项的 135 人（主要是 2026 新秀）
+按同位置组的平均差平移到同一把尺子，保留相对排序。
 
-**尺子不动，只换排序**。2K 的绝对值比我们低（护球 −8.2、传球 −6.8、篮板 −9.5），
-直接照抄会让全联盟的助攻/失误集体走样。所以做一次单调线性映射，把 2K 的分值对齐到
-我们原来的均值与标准差——排序听 2K 的，刻度保持原样。而且刻度是**按位置分别对齐**的：
-2K 对中锋的 ball_handle 天然给得低（中锋均值 46，后卫 79），全局对齐会把整个中锋群体
-的护球砍掉 11 分（约基奇 −14、恩比德 −21）。分位置对齐后，每个位置组的均值/标准差都不变。
+**用模拟结果说话**（`tools/validate_ratings_against_reality.mjs`：替身球员进引擎模拟，
+和 Basketball Reference 真实场均比 MAE；替身永远被当主力，只有两版差值有意义）：
 
-**哪一项该借，用模拟结果说话**，而不是看排序好不好看：
-
-```bash
-node tools/validate_ratings_against_reality.mjs --compare=/tmp/ratings-head.js --n=60
-```
-
-这个工具把属性装进一个替身球员，交给游戏自己的 `generatePlayerStatsNew` 模拟，
-再和 Basketball Reference 的真实场均逐项比 MAE。因为替身球员永远被当成主力，
-**绝对值有系统性偏差，只有两版之间的差值有意义**（同一套引擎，偏差会互相抵消）。
-
-逐项验证结果（`--n=60`，负数 = 比原版更准）：
-
-| 借用的项 | 得分 | 篮板 | 助攻 | 失误 | 结论 |
+| 方案 | 得分 | 篮板 | 助攻 | 失误 | 盖帽 |
 | --- | --- | --- | --- | --- | --- |
-| `--only=FIN` | +0.266 ✗ | — | — | — | 不采用 |
-| `--only=HAN` | +0.041 | — | −0.030 ✓ | — | 采用 |
-| `--only=CLU` | −0.140 ✓ | −0.017 ✓ | — | −0.016 ✓ | 采用 |
-| `--only=HAN,CLU` | −0.073 ✓ | −0.024 ✓ | −0.021 ✓ | −0.008 ✓ | **当前采用** |
+| shape（只借 HAN+CLU 排序） | −0.073 | −0.024 | −0.021 | −0.008 | — |
+| **full（13 项直接用 2K）** | **−2.615** | **−0.167** | **−0.829** | **−0.239** | **−0.224** |
 
-终结（FIN）被否掉了：2K 的 close_shot 对中锋给得特别高（戈贝尔 94、祖巴茨 93），
-而我们自己的公式已经用了真实篮下命中率 + 罚球率 + 篮下出手量，比 2K 更贴引擎。
-
-CLU 的换算里 `free_throw` 占 0.35 权重，这不是随便配的：引擎用 CLU 算罚球命中率
-（权重 0.50），只看 shot_iq/consistency 会让字母哥这种罚球差的球员 CLU 虚高到 99。
-加上 free_throw 后，CLU 与 2K 罚球的相关性从 0.26 提到 0.51，同时仍保住与 shot_iq 的 0.84。
+自己推导的属性把全联盟抬高了一档（得分偏差 +5.7 → +1.8），因为引擎本来就是照着
+2K 的数值刻度写的。CLU 换算里 `free_throw` 占 0.35：引擎用 CLU 算罚球命中率
+（权重 0.50），不加罚球会让字母哥这种罚球差的球员 CLU 虚高到 99。
 
 **重新生成属性的顺序**：`update_current_player_ratings_2026.mjs` 会整个重写评分文件，
-跑完必须再跑一次 `merge_2k_ratings.mjs`，否则 HAN / CLU 的 2K 形状会被冲掉。
+跑完必须再跑一次 `merge_2k_ratings.mjs`，否则 2K 数值会被冲掉。
 
 ## 本地导入外部名单（可选，不会上传）
 
