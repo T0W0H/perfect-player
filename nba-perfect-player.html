@@ -17374,15 +17374,36 @@ var JERSEY_TEAM_COPY_FALLBACK = [
 ;
 
 function buildJerseyAchievement(info) {
-  var parts = [];
-  if (info.championships > 0) {
-    var champLine = '你为' + getTeamName(info.team) + '带来 ' + info.championships + ' 座总冠军';
-    if (info.fmvp > 0) champLine += '和 ' + info.fmvp + ' 次总决赛MVP';
-    parts.push(champLine);
-  }
-  if (info.mvp > 0) parts.push('把 ' + info.mvp + ' 座常规赛MVP留在这座城市');
-  if (parts.length === 0) parts.push('你把最好的 ' + (info.years || 0) + ' 年都交给了这座城市');
-  return parts.join('，');
+  info = info || {};
+  var team = getTeamName(info.team);
+  var years = Number(info.years) || 0;
+  var champ = Number(info.championships) || 0;
+  var mvp = Number(info.mvp) || 0;
+  var fmvp = Number(info.fmvp) || 0;
+  var allStar = Number(info.allStar) || 0;
+  var seed = (years * 31 + champ * 131 + mvp * 17 + fmvp * 23 + allStar * 3 + String(info.team || '').length) % 997;
+  var pick = function(list) { return list[seed % list.length]; };
+  if (champ > 0 && fmvp > 0) return pick([
+    '你为' + team + '带回 ' + champ + ' 座总冠军，其中 ' + fmvp + ' 次是你亲手收尾',
+    champ + ' 座冠军、' + fmvp + ' 次总决赛MVP，都留在了这里',
+    '这座城市等过 ' + champ + ' 座冠军，而 ' + fmvp + ' 次由你敲门',
+  ]);
+  if (champ > 0) return pick([
+    '你为' + team + '带来 ' + champ + ' 座总冠军',
+    champ + ' 座冠军很难，你把它们留在了' + team,
+    '这里的 ' + champ + ' 座冠军，有你的一份',
+  ]);
+  if (mvp > 0) return pick([
+    '你把 ' + mvp + ' 座常规赛MVP留在了这座城市',
+    '没有冠军，但 ' + mvp + ' 座 MVP 挂在了' + team + '的账上',
+    '这里的球迷见过最好的你（' + mvp + ' 座 MVP）',
+  ]);
+  if (allStar > 0) return pick([
+    '你带着 ' + allStar + ' 次全明星的身份，把最好的 ' + years + ' 年交给了这里',
+    years + ' 年里，你 ' + allStar + ' 次站上全明星的舞台，都穿着这件球衣',
+    '全明星的名单里，你 ' + allStar + ' 次代表这座城',
+  ]);
+  return '你把最好的 ' + years + ' 年都交给了这座城市';
 }
 
 function buildJerseyCeremonyCopy(info) {
@@ -17616,14 +17637,100 @@ function buildHofAchievement(r) {
 }
 
 function buildCareerAchievement(r) {
-  var parts = [];
-  if (r.championships > 0) parts.push(r.championships + ' 座总冠军');
-  if (r.mvp > 0) parts.push(r.mvp + ' 次MVP');
-  if (r.fmvp > 0) parts.push(r.fmvp + ' 次总决赛MVP');
-  if (r.allNBA > 0) parts.push(r.allNBA + ' 次最佳阵容');
-  if (r.allStar > 0) parts.push(r.allStar + ' 次全明星');
-  if (parts.length === 0) parts.push('一段没有奖杯却足够完整的生涯');
-  return '生涯里，你写下过' + parts.join('、');
+  r = r || {};
+  var champ = Number(r.championships) || 0;
+  var mvp = Number(r.mvp) || 0;
+  var fmvp = Number(r.fmvp) || 0;
+  var dpoy = Number(r.dpoy) || 0;
+  var allNBA = Number(r.allNBA) || 0;
+  var allStar = Number(r.allStar) || 0;
+  var points = Math.round(Number(r.points) || 0);
+  var games = Number(r.games) || 0;
+  // 用生涯数字当种子：同一份生涯每次都说同一句，不同生涯说法不同
+  var seed = (points + games * 7 + champ * 131 + mvp * 17 + fmvp * 23 + dpoy * 11 + allNBA * 5 + allStar * 3) % 997;
+  var pick = function(list) { return list[seed % list.length]; };
+  // 补一到两条没说过的荣誉（mentioned 是这一句已经提过的项，避免同一项说两遍）
+  var extras = function(mentioned) {
+    var out = [];
+    if (dpoy > 0 && mentioned.indexOf('dpoy') < 0) out.push(dpoy + ' 次 DPOY');
+    if (allNBA >= 3 && mentioned.indexOf('allNBA') < 0 && out.length < 2) out.push(allNBA + ' 次最佳阵容');
+    if (allStar >= 6 && mentioned.indexOf('allStar') < 0 && out.length < 2) out.push(allStar + ' 次全明星');
+    return out.length ? '，还有 ' + out.join('、') : '';
+  };
+
+  if (champ >= 3) {
+    var dynastyText = extras(['champ']);
+    return pick([
+      champ + ' 座总冠军，你赶上了每一次加冕' + dynastyText,
+      '戒指藏满一只手：' + champ + ' 座总冠军' + dynastyText,
+      '提起那几年的冠军，绕不开你的名字（' + champ + ' 座）' + dynastyText,
+    ]);
+  }
+  if (champ > 0 && fmvp > 0) {
+    var closerText = extras(['champ', 'fmvp']);
+    return pick([
+      champ + ' 座总冠军，其中 ' + fmvp + ' 次是你亲手关上门' + closerText,
+      '你有 ' + champ + ' 座冠军，也有 ' + fmvp + ' 次总决赛MVP' + closerText,
+      champ + ' 座冠军里，' + fmvp + ' 次由你收尾' + closerText,
+    ]);
+  }
+  if (champ > 0) {
+    var champText = extras(['champ']);
+    return pick([
+      champ + ' 座总冠军，你的名字写在那份名单里' + champText,
+      '冠军你终究拿到了（' + champ + ' 座）' + champText,
+      champ + ' 座冠军，足以让这套球衣被记住' + champText,
+    ]);
+  }
+  if (mvp >= 2) {
+    var mvp2Text = extras(['mvp']);
+    return pick([
+      '没有戒指，但 ' + mvp + ' 座 MVP 自己会说话' + mvp2Text,
+      '两次以上的联盟第一个人，偏偏欠一枚戒指（' + mvp + ' 座 MVP）' + mvp2Text,
+      mvp + ' 座 MVP，一座城却忘了给你配上戒指' + mvp2Text,
+    ]);
+  }
+  if (mvp > 0) {
+    var mvp1Text = extras(['mvp']);
+    return pick([
+      '一枚 MVP，是你留给这个联盟的证明' + mvp1Text,
+      '你拿过常规赛 MVP，只是那年总冠军不在这里' + mvp1Text,
+      'MVP 只有一座，但没人能说你没有站稳过' + mvp1Text,
+    ]);
+  }
+  if (dpoy >= 2) return pick([
+    '你的名字是从防守开始被人记住的（' + dpoy + ' 次 DPOY）',
+    dpoy + ' 次 DPOY，你把脏活干成了招牌',
+    '没有大把得分，但 ' + dpoy + ' 次 DPOY 足够堵住所有嘴',
+  ]);
+  if (allNBA >= 5) {
+    var eliteText = extras(['allNBA']);
+    return pick([
+      allNBA + ' 次最佳阵容，稳定本身就是一种天赋' + eliteText,
+      '你连续多年站在联盟最前排（' + allNBA + ' 次最佳阵容）' + eliteText,
+      allNBA + ' 次最佳阵容里，写满了别人对你的认可' + eliteText,
+    ]);
+  }
+  if (allNBA > 0 || allStar >= 3) {
+    var starTail = (allNBA > 0 ? '、' + allNBA + ' 次最佳阵容' : '');
+    var starText = extras(allNBA > 0 ? ['allStar', 'allNBA'] : ['allStar']);
+    return pick([
+      allStar + ' 次全明星，你在球馆里从没当过配角' + starTail + starText,
+      '全联盟都认识你（' + allStar + ' 次全明星）' + starTail + starText,
+      '你被时代选中过 ' + allStar + ' 次' + (allNBA > 0 ? '，也入选过 ' + allNBA + ' 次最佳阵容' : '') + starText,
+    ]);
+  }
+  if (allStar > 0) return pick([
+    '你入选过 ' + allStar + ' 次全明星，那晚的灯是为自己亮的',
+    allStar + ' 次全明星，已经够让很多人仰望了',
+    '全明星的名单里有你（' + allStar + ' 次）',
+  ]);
+  if (games >= 300 && points > 0) return pick([
+    '没有奖杯，但 ' + games + ' 场比赛就是你的履历',
+    '荣誉栏是空的，可你打了 ' + games + ' 场，拿了 ' + points + ' 分',
+    '你什么都没多拿，只留下了 ' + points + ' 分和 ' + games + ' 个夜晚',
+  ]);
+  return '一段没有奖杯却足够完整的生涯';
 }
 
 function buildHofCopy(r) {
