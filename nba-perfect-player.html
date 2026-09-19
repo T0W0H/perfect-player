@@ -515,6 +515,12 @@ body{font-family:var(--font-body);background:var(--bg);color:var(--text);min-hei
     .ch-season-header .ch-team{font-size:12px;color:var(--text-dim);font-weight:400}
     .ch-badge{display:inline-block;padding:4px 10px;border-radius:8px;font-family:var(--font-display);font-size:12px;background:var(--orange-dim);color:var(--orange);margin:2px 3px}
     .ch-badge.gold{background:rgba(212,175,55,0.12);color:var(--gold)}
+    .ch-badge.title{background:rgba(255,107,53,0.16);color:var(--orange);border:1px solid rgba(255,107,53,0.35);font-weight:700}
+    .sr-honor-grid{display:flex;flex-wrap:wrap;gap:6px}
+    .sr-honor{display:inline-flex;align-items:center;gap:4px;padding:4px 9px;border-radius:8px;background:var(--orange-dim);color:var(--orange);font-family:var(--font-display);font-size:12px}
+    .sr-honor i{font-style:normal}
+    .sr-honor.is-title{background:rgba(255,107,53,0.18);border:1px solid rgba(255,107,53,0.45);font-weight:700}
+    .sr-honor.is-gold{background:rgba(212,175,55,0.14);color:var(--gold);border:1px solid rgba(212,175,55,0.35);font-weight:700}
     .ch-summary{padding:12px;text-align:center;font-family:var(--font-display);font-size:13px;color:var(--text-dim);line-height:1.8}
     .ch-empty{text-align:center;padding:40px 20px;font-size:14px;color:var(--text-muted)}
 
@@ -9548,6 +9554,9 @@ function showSeasonResults() {
         <div class="sr-result">${playoffResult === '🔥 附加赛' ? '' : playoffResult}</div>
       </div>
 
+      <!-- 本赛季荣誉（含六项数据王） -->
+      ${buildSeasonHonorCards()}
+
       <!-- 基础信息 -->
       <div class="sr-section">
         <div class="sr-section-title">👤 我的球员信息</div>
@@ -9646,17 +9655,7 @@ function renderMyCard(isFinal) {
     var l = (typeof a === 'object' && a.userHonorLabel) || a.label || (typeof a === 'string' ? a : '');
     if (!l) return;
     if (STATE.career && STATE.career.seasonCount > 0 && l.indexOf('最佳新秀') >= 0) return;
-    var emoji = '🏅';
-    if (l.indexOf('总冠军') >= 0) emoji = '🏆';
-    else if (l.indexOf('MVP') >= 0 || l.indexOf('FMVP') >= 0) emoji = '👑';
-    else if (l.indexOf('DPOY') >= 0 || l.indexOf('最佳防守') >= 0) emoji = '🔒';
-    else if (l.indexOf('进步最快') >= 0) emoji = '📈';
-    else if (l.indexOf('全明星') >= 0) emoji = '⭐';
-    else if (l.indexOf('最佳阵容') >= 0) emoji = '🌟';
-    else if (l.indexOf('最佳新秀') >= 0) emoji = '🌱';
-    var cls = 'ch-badge';
-    if (l.indexOf('总冠军') >= 0 || l.indexOf('MVP') >= 0 || l.indexOf('FMVP') >= 0) cls += ' gold';
-    awardsHtml += renderHonorBadge(l, emoji, cls);
+    awardsHtml += renderHonorBadge(l, getHonorEmoji(l), getHonorBadgeClass(l));
   });
   
   let playoffInfo = '';
@@ -10009,6 +10008,74 @@ function renderHonorBadge(label, emoji, cls) {
   return '<span class="' + (cls || '') + '">' + prefix + label + '</span>';
 }
 
+// ==================== 荣誉徽章（图标 / 样式的唯一入口） ====================
+// 数据王（得分/篮板/助攻/三分/抢断/盖帽）同样是赛季荣誉。
+// 以前只有 MVP/DPOY 这些有专属图标，数据王会退化成通用 🏅，看着像“没算进去”。
+var DATA_KING_LABELS = ['得分王', '篮板王', '助攻王', '三分王', '抢断王', '盖帽王'];
+var HONOR_EMOJI_RULES = [
+  ['总冠军', '🏆'],
+  ['总决赛MVP', '👑'], ['FMVP', '👑'], ['MVP', '👑'],
+  ['DPOY', '🔒'], ['最佳防守', '🔒'],
+  ['进步最快', '📈'],
+  ['全明星', '⭐'],
+  ['最佳阵容', '🌟'],
+  ['最佳新秀', '🌱'],
+  ['最佳第六人', '🔥'], ['第六人', '🔥'],
+  ['得分王', '🎯'], ['篮板王', '💪'], ['助攻王', '🅰️'],
+  ['三分王', '🏹'], ['抢断王', '🧤'], ['盖帽王', '🚫'],
+];
+
+function getHonorEmoji(label) {
+  var text = String(label || '');
+  for (var i = 0; i < HONOR_EMOJI_RULES.length; i++) {
+    if (text.indexOf(HONOR_EMOJI_RULES[i][0]) >= 0) return HONOR_EMOJI_RULES[i][1];
+  }
+  return '🏅';
+}
+
+/** 存档里已经存过图标时，优先用能认出具体奖项的那一个 */
+function resolveHonorEmoji(label, storedEmoji) {
+  var live = getHonorEmoji(label);
+  return live !== '🏅' ? live : (storedEmoji || live);
+}
+
+function isDataKingHonor(label) {
+  var text = String(label || '');
+  for (var i = 0; i < DATA_KING_LABELS.length; i++) {
+    if (text.indexOf(DATA_KING_LABELS[i]) >= 0) return true;
+  }
+  return false;
+}
+
+function getHonorBadgeClass(label) {
+  var text = String(label || '');
+  if (text.indexOf('总冠军') >= 0 || text.indexOf('MVP') >= 0 || text.indexOf('FMVP') >= 0) return 'ch-badge gold';
+  if (isDataKingHonor(text)) return 'ch-badge title';
+  return 'ch-badge';
+}
+
+/** 本赛季荣誉：把这一季拿到的奖项做成小卡片（含六项数据王） */
+function buildSeasonHonorCards() {
+  var awards = (STATE.season && STATE.season.awards) || [];
+  if (!awards.length) return '';
+  var labels = [];
+  awards.forEach(function(a) {
+    if (typeof a === 'object' && a && !a.isUser) return;
+    var label = (typeof a === 'string') ? a : ((a && (a.userHonorLabel || a.label)) || '');
+    if (!label) return;
+    if (STATE.career && STATE.career.seasonCount > 0 && label.indexOf('最佳新秀') >= 0) return;
+    if (labels.indexOf(label) >= 0) return;
+    labels.push(label);
+  });
+  if (!labels.length) return '';
+  var cards = labels.map(function(label) {
+    var cls = getHonorBadgeClass(label);
+    var extra = cls.indexOf('gold') >= 0 ? ' is-gold' : (cls.indexOf('title') >= 0 ? ' is-title' : '');
+    return '<span class="sr-honor' + extra + '"><i>' + getHonorEmoji(label) + '</i><b>' + label + '</b></span>';
+  }).join('');
+  return '<div class="sr-section"><div class="sr-section-title">🏅 本赛季荣誉</div><div class="sr-honor-grid">' + cards + '</div></div>';
+}
+
 function renderCareerHonorsTab() {
   var c = STATE.career;
   var h = '';
@@ -10025,9 +10092,7 @@ function renderCareerHonorsTab() {
         h += '<div style="font-size:12px;color:var(--text-muted);">暂无荣誉</div>';
       } else {
         seasHonors.forEach(function(hh) {
-          var cls = 'ch-badge';
-          if (hh.label.indexOf('总冠军') >= 0 || hh.label.indexOf('MVP') >= 0 || hh.label.indexOf('FMVP') >= 0) cls += ' gold';
-          h += renderHonorBadge(hh.label, hh.emoji, cls);
+          h += renderHonorBadge(hh.label, resolveHonorEmoji(hh.label, hh.emoji), getHonorBadgeClass(hh.label));
         });
       }
       h += '</div>';
@@ -10086,27 +10151,14 @@ function saveCurrentSeasonToCareer() {
       var l = a;
       if (!l) return;
       if (c.seasonCount > 0 && l.indexOf('最佳新秀') >= 0) return;
-      var emoji = '🏅';
-      if (l.indexOf('总冠军') >= 0) emoji = '🏆';
-      else if (l.indexOf('MVP') >= 0 || l.indexOf('FMVP') >= 0) emoji = '👑';
-      else if (l.indexOf('DPOY') >= 0) emoji = '🔒';
-      else if (l.indexOf('全明星') >= 0) emoji = '⭐';
-      else if (l.indexOf('最佳阵容') >= 0) emoji = '🌟';
-      else if (l.indexOf('最佳新秀') >= 0) emoji = '🌱';
+      var emoji = getHonorEmoji(l);
       honorList.push({ seasonNum: c.seasonCount + 1, label: l, emoji: emoji });
     } else if (a.isUser) {
       // 结构化奖项：只取 isUser 为 true 的
       var l = a.userHonorLabel || a.label || '';
       if (!l) return;
       if (c.seasonCount > 0 && l.indexOf('最佳新秀') >= 0) return;
-      var emoji = '🏅';
-      if (l.indexOf('总冠军') >= 0) emoji = '🏆';
-      else if (l.indexOf('MVP') >= 0 || l.indexOf('FMVP') >= 0) emoji = '👑';
-      else if (l.indexOf('DPOY') >= 0 || l.indexOf('最佳防守') >= 0) emoji = '🔒';
-      else if (l.indexOf('进步最快') >= 0) emoji = '📈';
-      else if (l.indexOf('全明星') >= 0) emoji = '⭐';
-      else if (l.indexOf('最佳阵容') >= 0) emoji = '🌟';
-      else if (l.indexOf('最佳新秀') >= 0) emoji = '🌱';
+      var emoji = getHonorEmoji(l);
       honorList.push({ seasonNum: c.seasonCount + 1, label: l, emoji: emoji });
     }
   });
@@ -10181,7 +10233,7 @@ function showSeasonDetail(idx) {
     s.awards.forEach(function(a) {
       var label = (a && a.label) || a || '';
       if ((parseInt(s.seasonNum, 10) || 0) !== 1 && label.indexOf('最佳新秀') >= 0) return;
-      awardsHtml += '<span class="ch-badge">' + label + '</span>';
+      awardsHtml += renderHonorBadge(label, resolveHonorEmoji(label, a.emoji), getHonorBadgeClass(label));
     });
   }
   var ovr = s.ovr || '—';
@@ -10246,9 +10298,7 @@ function showCareerHonors() {
         html += '<div style="font-size:12px;color:var(--text-muted);">暂无荣誉</div>';
       } else {
         seasHonors.forEach(function(h) {
-          var cls = 'ch-badge';
-          if (h.label.indexOf('总冠军') >= 0 || h.label.indexOf('MVP') >= 0 || h.label.indexOf('FMVP') >= 0) cls += ' gold';
-          html += renderHonorBadge(h.label, h.emoji, cls);
+          html += renderHonorBadge(h.label, resolveHonorEmoji(h.label, h.emoji), getHonorBadgeClass(h.label));
         });
       }
       html += '</div>';
@@ -19713,10 +19763,8 @@ function showFreeAgencyTeamChangeModal(oldTeam, newTeam, done) {
   var honorHtml = '';
   if (data.honors.length) {
     data.honors.forEach(function(h) {
-      var cls = 'ch-badge';
       var label = h.label || '';
-      if (label.indexOf('总冠军') >= 0 || label.indexOf('MVP') >= 0 || label.indexOf('FMVP') >= 0) cls += ' gold';
-      honorHtml += renderHonorBadge(label, h.emoji || '🏅', cls);
+      honorHtml += renderHonorBadge(label, resolveHonorEmoji(label, h.emoji), getHonorBadgeClass(label));
     });
   } else {
     honorHtml = '<span style="font-size:12px;color:var(--text-muted);">暂无队内荣誉</span>';
